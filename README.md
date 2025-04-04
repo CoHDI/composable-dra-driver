@@ -1,1 +1,1 @@
-# composable-dra-driver
+# Dynamic Resource Allocation (DRA) for Composable disaggregated infrastructure in Kubernetes
