@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	fakedynamic "k8s.io/client-go/dynamic/fake"
@@ -38,9 +39,25 @@ func mustCreateKubeControllers(t testing.TB, testConfig *testConfig) (*KubeContr
 		},
 		machineObjects...,
 	)
+	machineAPI := &metav1.APIResourceList{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       MachineResourceName,
+			APIVersion: MachineAPIVersion,
+		},
+		GroupVersion: MachineAPIGroup + "/" + MachineAPIVersion,
+	}
+	bmhAPI := &metav1.APIResourceList{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       BareMetalHostResourceName,
+			APIVersion: Metal3APIVersion,
+		},
+		GroupVersion: Metal3APIGroup + "/" + Metal3APIVersion,
+	}
+	kubeclient.Fake.Resources = append(kubeclient.Fake.Resources, machineAPI, bmhAPI)
+	discoveryclient := kubeclient.Discovery()
 
 	stopCh := make(chan struct{})
-	controllers, err := CreateKubeControllers(kubeclient, dynamicclient, stopCh)
+	controllers, err := CreateKubeControllers(kubeclient, dynamicclient, discoveryclient, stopCh)
 	if err != nil {
 		t.Fatal("failed to create test controller")
 	}

@@ -5,15 +5,19 @@ import (
 	"cdi_dra/pkg/config"
 	"cdi_dra/pkg/kube_utils"
 	"context"
+	"fmt"
 	"log/slog"
+	"math/rand"
 	"strconv"
 
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	kube_client "k8s.io/client-go/kubernetes"
 	"k8s.io/dynamic-resource-allocation/resourceslice"
+	"k8s.io/utils/strings/slices"
 )
 
 const (
@@ -23,6 +27,7 @@ const (
 type CDIManager struct {
 	coreClient           kube_client.Interface
 	machineClient        dynamic.Interface
+	discoveryClient      discovery.DiscoveryInterface
 	namedDriverResources map[string]*resourceslice.DriverResources
 	deviceInfos          []DeviceInfo
 	cdiClient            *client.CDIClient
@@ -36,8 +41,6 @@ type DeviceInfo struct {
 	CDIModelName string `yaml:"cdi-model-name"`
 	// Attributes of ResourceSlice that will be exposed. It corresponds to vendor's ResourceSlice
 	DRAAttributes map[string]string `yaml:"dra-attributes"`
-	// Node label for setting NodeSelector in ResourceSlice
-	NodeLable map[string]string `yaml:"label-kye-model"`
 	// Name of vendor DRA driver for a device
 	DriverName string `yaml:"driver-name"`
 	// DRA pool name or label name affixed to a node. Basic format is "<vendor>-<model>"
@@ -54,12 +57,17 @@ type machine struct {
 	nodeName    string
 	machineUUID string
 	fabricID    int
-	devices     []*device
+	deviceList  deviceList
+}
+
+type deviceList struct {
+	devices []*device
 }
 
 type device struct {
-	deviceModelName      string
+	modelName            string
 	k8sDeviceName        string
+	driverName           string
 	availableDeviceCount int
 	minDeviceCount       int
 	maxDeviceCount       int
@@ -83,8 +91,14 @@ func StartCDIManager(ctx context.Context, config *config.Config) error {
 		return err
 	}
 
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(kconfig)
+	if err != nil {
+		slog.Error("Failed to create discovery client", "error", err)
+		return err
+	}
+
 	// Create k8s controllers for Nodes, ConfigMap, Secret, Machine and BMH
-	kc, err := kube_utils.CreateKubeControllers(coreclient, machineclient, ctx.Done())
+	kc, err := kube_utils.CreateKubeControllers(coreclient, machineclient, discoveryClient, ctx.Done())
 	if err != nil {
 		slog.Error("Failed to create kube controllers")
 		return err
@@ -122,6 +136,7 @@ func StartCDIManager(ctx context.Context, config *config.Config) error {
 	m := &CDIManager{
 		coreClient:           coreclient,
 		machineClient:        machineclient,
+		discoveryClient:      discoveryClient,
 		namedDriverResources: ndr,
 		deviceInfos:          devInfos,
 		cdiClient:            cdiclient,
@@ -144,6 +159,9 @@ func StartCDIManager(ctx context.Context, config *config.Config) error {
 }
 
 func (m *CDIManager) startResourceSliceController(ctx context.Context) (map[string]*resourceslice.Controller, error) {
+	if !kube_utils.IsDRAEnabled(m.discoveryClient) {
+		return nil, fmt.Errorf("not enabled feature gate of Dynamic Resource Allocation")
+	}
 	controllers := make(map[string]*resourceslice.Controller)
 	for driverName, driverResource := range m.namedDriverResources {
 		options := resourceslice.Options{
@@ -163,13 +181,15 @@ func (m *CDIManager) startResourceSliceController(ctx context.Context) (map[stri
 }
 
 func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers map[string]*resourceslice.Controller) error {
+	// Get the map of node name vs machine uuid
 	muuids, err := m.getMachineUUIDs()
 	if err != nil {
 		slog.Error("failed to get machine UUID")
 		return err
 	}
 
-	machineInfos := &machineInfos{}
+	// Create machine which have information of node and devices
+	var machineInfos machineInfos
 	for nodeName, muuid := range muuids {
 		machine := &machine{
 			nodeName:    nodeName,
@@ -178,32 +198,71 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 		machineInfos.machines = append(machineInfos.machines, machine)
 	}
 
+	// Get fabric id of every machine
 	for _, machine := range machineInfos.machines {
 		fabricID, err := m.getFabricID(machine.machineUUID)
 		if err != nil {
 			return err
 		}
 		machine.fabricID = fabricID
-
-		var devices []*device
-		for _, deviceInfo := range m.deviceInfos {
-			device := &device{
-				deviceModelName: deviceInfo.CDIModelName,
-				k8sDeviceName:   deviceInfo.K8sDeviceName,
-			}
-			devices = append(devices, device)
-		}
-		err = m.setAvailableNums(machine.machineUUID, devices)
-		if err != nil {
-			return err
-		}
-
-		err = m.setMinMaxNums(machine.machineUUID, devices)
-		if err != nil {
-			return err
-		}
-		machine.devices = devices
 	}
+
+	// Get the number of free devices in a fabric pool
+	// It is executed per a fabric for reducing API calls
+	fabricFound := make(map[int]deviceList)
+	for _, machine := range machineInfos.machines {
+		if _, exists := fabricFound[machine.fabricID]; exists {
+			continue
+		}
+		var deviceList deviceList
+		for _, deviceInfo := range m.deviceInfos {
+			availableNum, err := m.getAvailableNums(machine.machineUUID, deviceInfo.CDIModelName)
+			if err != nil {
+				return err
+			}
+			device := &device{
+				modelName:            deviceInfo.CDIModelName,
+				k8sDeviceName:        deviceInfo.K8sDeviceName,
+				driverName:           deviceInfo.DriverName,
+				availableDeviceCount: availableNum,
+			}
+			deviceList.devices = append(deviceList.devices, device)
+		}
+		fabricFound[machine.fabricID] = deviceList
+	}
+
+	// Copy device list per a fabric into all machines
+	for fabricID, deviceList := range fabricFound {
+		for _, machine := range machineInfos.machines {
+			if machine.fabricID != fabricID {
+				continue
+			}
+			machine.deviceList = deviceList.DeepCopy()
+		}
+	}
+
+	// Get the minimum and maximum number of devices in the node group
+	// and set them into device of every machine.
+	err = m.setMinMaxNums(machineInfos)
+	if err != nil {
+		return err
+	}
+
+	// Print for debug
+	for _, machine := range machineInfos.machines {
+		fmt.Printf("machineUUID    : %s\n", machine.machineUUID)
+		fmt.Printf("fabric id      : %d\n", machine.fabricID)
+		for _, device := range machine.deviceList.devices {
+			fmt.Printf("device name    : %s\n", device.modelName)
+			fmt.Printf("device address : %p\n", device)
+			fmt.Printf("available      : %d\n", device.availableDeviceCount)
+			fmt.Printf("max            : %d\n", device.maxDeviceCount)
+			fmt.Printf("min            : %d\n", device.minDeviceCount)
+		}
+		fmt.Println("-----")
+	}
+
+	// Update ResourceSlice using machineInfos
 	err = m.manageCDIResourceSlices(ctx, machineInfos, controllers)
 	if err != nil {
 		return err
@@ -223,11 +282,17 @@ func (m *CDIManager) getMachineUUIDs() (map[string]string, error) {
 		if err != nil {
 			slog.Error("failed to get node name", "error", err)
 			return nil, err
+		} else if nodeName == "" {
+			slog.Warn("missing node for providerID", "providerID", providerID)
+			continue
 		}
 		uuid, err := m.kubecontrollers.FindMachineUUIDByProviderID(providerID)
 		if err != nil {
 			slog.Error("failed to get machine uuid", "error", err)
 			return nil, err
+		} else if uuid == "" {
+			slog.Warn("missing machine uuid for providerID", "providerID", providerID)
+			continue
 		}
 		uuids[nodeName] = uuid
 	}
@@ -239,35 +304,59 @@ func (m *CDIManager) getFabricID(muuid string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	fabricID := 1
+	// TODO: preliminarily return random fabric number
+	fabricID := rand.Intn(2) + 1
 	return fabricID, nil
 }
 
-func (m *CDIManager) setAvailableNums(muuid string, devices []*device) error {
-	for _, device := range devices {
-		device.availableDeviceCount = 1
+func (m *CDIManager) getAvailableNums(muuid string, modelName string) (int, error) {
+	// TODO: preliminarily return random available number
+	num := rand.Intn(3) + 1
+	return num, nil
+}
+
+func (m *CDIManager) setMinMaxNums(mInfos machineInfos) error {
+	nodeGroups, err := m.cdiClient.GetCMNodeGroups()
+	if err != nil {
+		return err
+	}
+	var ngInfos []client.CMNodeGroupInfo
+	for _, nodeGroup := range nodeGroups.NodeGroups {
+		ngInfo, err := m.cdiClient.GetCMNodeGroupInfo(nodeGroup)
+		if err != nil {
+			return err
+		}
+		ngInfos = append(ngInfos, ngInfo)
+	}
+	for _, machine := range mInfos.machines {
+		for _, ngInfo := range ngInfos {
+			if slices.Contains(ngInfo.MachineIDs, machine.machineUUID) {
+				for _, device := range machine.deviceList.devices {
+					for _, resource := range ngInfo.Resources {
+						if device.modelName == resource.ModelName {
+							device.minDeviceCount = resource.MinResourceCount
+							device.maxDeviceCount = resource.MaxResourceCount
+						}
+					}
+				}
+			}
+		}
 	}
 	return nil
 }
 
-func (m *CDIManager) setMinMaxNums(muuid string, devices []*device) error {
-	for _, device := range devices {
-		device.maxDeviceCount = 3
-		device.minDeviceCount = 1
-	}
-	return nil
-}
-
-func (m *CDIManager) manageCDIResourceSlices(ctx context.Context, machineInfos *machineInfos, controlles map[string]*resourceslice.Controller) error {
-	fabricFound := make(map[int]bool)
+func (m *CDIManager) manageCDIResourceSlices(ctx context.Context, machineInfos machineInfos, controlles map[string]*resourceslice.Controller) error {
 	for driverName := range m.namedDriverResources {
+		fabricFound := make(map[int]bool)
 		for _, machine := range machineInfos.machines {
 			if !fabricFound[machine.fabricID] {
-				for _, device := range machine.devices {
-					poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(machine.fabricID)
-					err := m.updatePool(driverName, poolName, device)
-					if err != nil {
-						return err
+				for _, device := range machine.deviceList.devices {
+					if device.driverName == driverName {
+						poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(machine.fabricID)
+						err := m.updatePool(driverName, poolName, device)
+						if err != nil {
+							return err
+						}
 					}
 				}
 				fabricFound[machine.fabricID] = true
@@ -283,6 +372,7 @@ func (m *CDIManager) manageCDIResourceSlices(ctx context.Context, machineInfos *
 }
 
 func (m *CDIManager) updatePool(driverName string, poolName string, device *device) error {
+	slog.Info("create ResourceSlice", "name", poolName, "driver", driverName)
 	return nil
 }
 
@@ -321,4 +411,15 @@ func initDriverResources(devInfos []DeviceInfo) map[string]*resourceslice.Driver
 		result[devInfo.DriverName] = driverResources
 	}
 	return result
+}
+
+func (in deviceList) DeepCopy() (out deviceList) {
+	if in.devices != nil {
+		for _, inDevice := range in.devices {
+			newDevice := new(device)
+			*newDevice = *inDevice
+			out.devices = append(out.devices, newDevice)
+		}
+	}
+	return out
 }

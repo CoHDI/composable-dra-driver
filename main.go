@@ -91,7 +91,7 @@ func newApp() *cli.App {
 				slog.Info("Signal received", "signal", s.String())
 				return nil
 			case err := <-errChan:
-				slog.Error("Failed controller run", "error", err)
+				slog.Error("Failed start manager", "error", err)
 				return err
 			}
 		},

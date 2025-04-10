@@ -12,7 +12,7 @@ func CreateConfigMap() []*corev1.ConfigMap {
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-configmap-1",
-			Namespace: "cdi-dra-dds",
+			Namespace: "composable-dra",
 		},
 		Data: map[string]string{
 			"device-info": `
