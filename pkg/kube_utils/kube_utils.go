@@ -10,9 +10,9 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
-	"k8s.io/client-go/informers"
 	kubeinformers "k8s.io/client-go/informers"
 	kube_client "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -30,6 +30,9 @@ const (
 	Metal3APIGroup            string = "metal3.io"
 	Metal3APIVersion          string = "v1alpha1"
 	BareMetalHostResourceName string = "baremetalhosts"
+	DRAAPIGroup               string = "resource.k8s.io"
+	DRAAPIVersion             string = "v1beta1"
+	ResourceSliceResourceName string = "resourceslices"
 )
 
 type normalizedProviderID string
@@ -45,8 +48,10 @@ type KubeControllers struct {
 	nodeInformer           cache.SharedIndexInformer
 	configMapInformer      cache.SharedIndexInformer
 	secretInformer         cache.SharedIndexInformer
-	machineInformer        informers.GenericInformer
-	bmhInformer            informers.GenericInformer
+	machineInformer        kubeinformers.GenericInformer
+	machineAvailable       bool
+	bmhInformer            kubeinformers.GenericInformer
+	bmhAvailable           bool
 	stopChannel            <-chan struct{}
 }
 
@@ -66,7 +71,7 @@ func NewClientConfig() (*rest.Config, error) {
 	return config, nil
 }
 
-func CreateKubeControllers(coreClient kube_client.Interface, machineClient dynamic.Interface, stopChannel <-chan struct{}) (*KubeControllers, error) {
+func CreateKubeControllers(coreClient kube_client.Interface, machineClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface, stopChannel <-chan struct{}) (*KubeControllers, error) {
 	coreInformerFactory := kubeinformers.NewSharedInformerFactory(coreClient, 0)
 	machineInformerFactory := dynamicinformer.NewDynamicSharedInformerFactory(machineClient, 0)
 
@@ -80,24 +85,41 @@ func CreateKubeControllers(coreClient kube_client.Interface, machineClient dynam
 		return nil, err
 	}
 
-	gvrMachine := schema.GroupVersionResource{
-		Group:    MachineAPIGroup,
-		Version:  MachineAPIVersion,
-		Resource: MachineResourceName,
-	}
-	machineInformer := machineInformerFactory.ForResource(gvrMachine)
+	var machineInformer kubeinformers.GenericInformer
+	var bmhInformer kubeinformers.GenericInformer
 
-	gvrBMH := schema.GroupVersionResource{
-		Group:    Metal3APIGroup,
-		Version:  Metal3APIVersion,
-		Resource: BareMetalHostResourceName,
-	}
-	bmhInformer := machineInformerFactory.ForResource(gvrBMH)
-	if err := bmhInformer.Informer().GetIndexer().AddIndexers(cache.Indexers{
-		bmhProviderIDIndex: indexBMHByProviderID,
-	}); err != nil {
-		slog.Error("Cannot add bmh indexer", "error", err)
+	machineAvailable, err := groupVersionHasResource(discoveryClient,
+		fmt.Sprintf("%s/%s", MachineAPIGroup, MachineAPIVersion), MachineResourceName)
+	if err != nil {
 		return nil, err
+	}
+	if machineAvailable {
+		gvrMachine := schema.GroupVersionResource{
+			Group:    MachineAPIGroup,
+			Version:  MachineAPIVersion,
+			Resource: MachineResourceName,
+		}
+		machineInformer = machineInformerFactory.ForResource(gvrMachine)
+	}
+
+	bmhAvailable, err := groupVersionHasResource(discoveryClient,
+		fmt.Sprintf("%s/%s", Metal3APIGroup, Metal3APIVersion), BareMetalHostResourceName)
+	if err != nil {
+		return nil, err
+	}
+	if bmhAvailable {
+		gvrBMH := schema.GroupVersionResource{
+			Group:    Metal3APIGroup,
+			Version:  Metal3APIVersion,
+			Resource: BareMetalHostResourceName,
+		}
+		bmhInformer = machineInformerFactory.ForResource(gvrBMH)
+		if err := bmhInformer.Informer().GetIndexer().AddIndexers(cache.Indexers{
+			bmhProviderIDIndex: indexBMHByProviderID,
+		}); err != nil {
+			slog.Error("Cannot add bmh indexer", "error", err)
+			return nil, err
+		}
 	}
 
 	return &KubeControllers{
@@ -107,9 +129,27 @@ func CreateKubeControllers(coreClient kube_client.Interface, machineClient dynam
 		configMapInformer:      configMapInformer,
 		secretInformer:         secretInformer,
 		machineInformer:        machineInformer,
+		machineAvailable:       machineAvailable,
 		bmhInformer:            bmhInformer,
+		bmhAvailable:           bmhAvailable,
 		stopChannel:            stopChannel,
 	}, nil
+}
+
+func groupVersionHasResource(client discovery.DiscoveryInterface, groupVersion, resourceName string) (bool, error) {
+	resourceList, err := client.ServerResourcesForGroupVersion(groupVersion)
+	if err != nil {
+		slog.Error("failed to get ServerGroups", "error", err, "groupVersion", groupVersion)
+		return false, err
+	}
+
+	for _, r := range resourceList.APIResources {
+		if r.Name == resourceName {
+			slog.Info("Resource available", "resourceName", r.Name)
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func indexNodeByProviderID(obj interface{}) ([]string, error) {
@@ -142,6 +182,15 @@ func normalizedProviderString(s string) normalizedProviderID {
 	return normalizedProviderID(split[len(split)-1])
 }
 
+func IsDRAEnabled(discoveryClient discovery.DiscoveryInterface) bool {
+	draAvailable, err := groupVersionHasResource(discoveryClient,
+		fmt.Sprintf("%s/%s", DRAAPIGroup, DRAAPIVersion), ResourceSliceResourceName)
+	if err != nil {
+		return false
+	}
+	return draAvailable
+}
+
 func (kc *KubeControllers) Run() error {
 	kc.coreInformerFactory.Start(kc.stopChannel)
 	kc.machineInformerFactory.Start(kc.stopChannel)
@@ -150,8 +199,12 @@ func (kc *KubeControllers) Run() error {
 		kc.nodeInformer.HasSynced,
 		kc.configMapInformer.HasSynced,
 		kc.secretInformer.HasSynced,
-		kc.machineInformer.Informer().HasSynced,
-		kc.bmhInformer.Informer().HasSynced,
+	}
+	if kc.machineAvailable {
+		syncFuncs = append(syncFuncs, kc.machineInformer.Informer().HasSynced)
+	}
+	if kc.bmhAvailable {
+		syncFuncs = append(syncFuncs, kc.bmhInformer.Informer().HasSynced)
 	}
 	slog.Info("waiting for cached to sync")
 	if !cache.WaitForCacheSync(kc.stopChannel, syncFuncs...) {
@@ -166,6 +219,7 @@ func (kc *KubeControllers) GetConfigMap(key string) (*corev1.ConfigMap, error) {
 		return nil, fmt.Errorf("failed to get configmap: %w", err)
 	}
 	if !exists {
+		slog.Warn("not exists configmap")
 		return nil, nil
 	}
 	cm, ok := obj.(*corev1.ConfigMap)
@@ -223,7 +277,7 @@ func (kc *KubeControllers) ListProviderIDs() ([]normalizedProviderID, error) {
 		}
 		slog.Warn("machine has no providerID", "name", machine.GetName())
 	}
-	slog.Info("get providerID", "number", len(providerIDs))
+	slog.Info("the number of providerIDs", "providerIDNum", len(providerIDs))
 	return providerIDs, nil
 }
 

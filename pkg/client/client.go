@@ -21,6 +21,40 @@ type FMAvailableReservedResources struct {
 	ReservedResourceNum int    `json:"reserved_res_num_per_fabric"`
 }
 
+type CMNodeGroups struct {
+	NodeGroups []NodeGroup `json:"nodegroups"`
+}
+
+type NodeGroup struct {
+	UUID      string `json:"uuid"`
+	Name      string `json:"name"`
+	NodeCount int    `json:"node_count"`
+	Role      string `json:"role"`
+}
+
+type CMNodeGroupInfo struct {
+	UUID         string     `json:"uuid"`
+	Name         string     `json:"name"`
+	Composable   bool       `json:"composable"`
+	NodeCount    int        `json:"node_count"`
+	Role         string     `json:"role"`
+	MinNodeCount int        `json:"min_node_count"`
+	MaxNodeCount int        `json:"max_node_count"`
+	Status       string     `json:"status"`
+	StatusReason string     `json:"status_reason"`
+	Resources    []Resource `json:"resources"`
+	NodeIDs      []string   `json:"node_ids"`
+	MachineIDs   []string   `json:"mach_ids"`
+}
+
+type Resource struct {
+	ResourceName     string `json:"resource_name"`
+	ResourceType     string `json:"resource_type"`
+	ModelName        string `json:"mode_name"`
+	MinResourceCount int    `json:"min_resource_count"`
+	MaxResourceCount int    `json:"max_resource_count"`
+}
+
 func BuildCDIClient(config *config.Config, controllers *kube_utils.KubeControllers) (*CDIClient, error) {
 	var standardClient = http.DefaultClient
 
@@ -40,4 +74,29 @@ func (c *CDIClient) GetFMAvailableReservedResources(muuid string) (FMAvailableRe
 	// req := newRequest(http.MethodGet)
 	c.TokenSource.Token()
 	return fmResources, nil
+}
+
+func (c *CDIClient) GetCMNodeGroups() (CMNodeGroups, error) {
+	return CMNodeGroups{
+		NodeGroups: []NodeGroup{
+			{
+				UUID: "1",
+			},
+		},
+	}, nil
+}
+
+func (c *CDIClient) GetCMNodeGroupInfo(ng NodeGroup) (CMNodeGroupInfo, error) {
+	return CMNodeGroupInfo{
+		MachineIDs: []string{
+			"cdi-control-plane",
+		},
+		Resources: []Resource{
+			{
+				ModelName:        "A100 40G",
+				MinResourceCount: 1,
+				MaxResourceCount: 3,
+			},
+		},
+	}, nil
 }
