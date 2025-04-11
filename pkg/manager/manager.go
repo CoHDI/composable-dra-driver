@@ -12,16 +12,19 @@ import (
 
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
+	resourceapi "k8s.io/api/resource/v1beta1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	kube_client "k8s.io/client-go/kubernetes"
 	"k8s.io/dynamic-resource-allocation/resourceslice"
+	"k8s.io/utils/ptr"
 	"k8s.io/utils/strings/slices"
 )
 
 const (
 	configMapName = "composable-dra/composable-dra-dds"
+	GpuDeviceType = "gpu"
 )
 
 type CDIManager struct {
@@ -68,6 +71,7 @@ type device struct {
 	modelName            string
 	k8sDeviceName        string
 	driverName           string
+	draAttributes        map[string]string
 	availableDeviceCount int
 	minDeviceCount       int
 	maxDeviceCount       int
@@ -224,6 +228,7 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 				modelName:            deviceInfo.CDIModelName,
 				k8sDeviceName:        deviceInfo.K8sDeviceName,
 				driverName:           deviceInfo.DriverName,
+				draAttributes:        deviceInfo.DRAAttributes,
 				availableDeviceCount: availableNum,
 			}
 			deviceList.devices = append(deviceList.devices, device)
@@ -247,19 +252,11 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 	if err != nil {
 		return err
 	}
-
-	// Print for debug
 	for _, machine := range machineInfos.machines {
-		fmt.Printf("machineUUID    : %s\n", machine.machineUUID)
-		fmt.Printf("fabric id      : %d\n", machine.fabricID)
+		slog.Info("machine information", "nodeName", machine.nodeName, "machineUUID", machine.machineUUID, "fabricID", machine.fabricID)
 		for _, device := range machine.deviceList.devices {
-			fmt.Printf("device name    : %s\n", device.modelName)
-			fmt.Printf("device address : %p\n", device)
-			fmt.Printf("available      : %d\n", device.availableDeviceCount)
-			fmt.Printf("max            : %d\n", device.maxDeviceCount)
-			fmt.Printf("min            : %d\n", device.minDeviceCount)
+			slog.Info("device information", "nodeName", machine.nodeName, "modelName", device.modelName, "available", device.availableDeviceCount, "min", device.minDeviceCount, "max", device.maxDeviceCount)
 		}
-		fmt.Println("-----")
 	}
 
 	// Update ResourceSlice using machineInfos
@@ -305,13 +302,15 @@ func (m *CDIManager) getFabricID(muuid string) (int, error) {
 		return 0, err
 	}
 	// TODO: preliminarily return random fabric number
-	fabricID := rand.Intn(2) + 1
+	// fabricID := rand.Intn(2) + 1
+	fabricID := 1
 	return fabricID, nil
 }
 
 func (m *CDIManager) getAvailableNums(muuid string, modelName string) (int, error) {
 	// TODO: preliminarily return random available number
-	num := rand.Intn(3) + 1
+	num := rand.Intn(2) + 1
+	// num := 1
 	return num, nil
 }
 
@@ -346,6 +345,7 @@ func (m *CDIManager) setMinMaxNums(mInfos machineInfos) error {
 }
 
 func (m *CDIManager) manageCDIResourceSlices(ctx context.Context, machineInfos machineInfos, controlles map[string]*resourceslice.Controller) error {
+	needUpdate := make(map[string]bool)
 	for driverName := range m.namedDriverResources {
 		fabricFound := make(map[int]bool)
 		for _, machine := range machineInfos.machines {
@@ -353,9 +353,9 @@ func (m *CDIManager) manageCDIResourceSlices(ctx context.Context, machineInfos m
 				for _, device := range machine.deviceList.devices {
 					if device.driverName == driverName {
 						poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(machine.fabricID)
-						err := m.updatePool(driverName, poolName, device)
-						if err != nil {
-							return err
+						updated := m.updatePool(driverName, poolName, device, machine.fabricID)
+						if updated {
+							needUpdate[driverName] = true
 						}
 					}
 				}
@@ -364,16 +364,34 @@ func (m *CDIManager) manageCDIResourceSlices(ctx context.Context, machineInfos m
 		}
 	}
 	for driverName, driverResources := range m.namedDriverResources {
-		c := controlles[driverName]
-		c.Update(driverResources)
+		if needUpdate[driverName] {
+			for poolName, pool := range driverResources.Pools {
+				slog.Info("pool update to renew ResourceSlice", "poolName", poolName, "generation", pool.Generation)
+			}
+			c := controlles[driverName]
+			c.Update(driverResources)
+		}
 	}
 
 	return nil
 }
 
-func (m *CDIManager) updatePool(driverName string, poolName string, device *device) error {
-	slog.Info("create ResourceSlice", "name", poolName, "driver", driverName)
-	return nil
+func (m *CDIManager) updatePool(driverName string, poolName string, device *device, fabricID int) (updated bool) {
+	// m.namedDriverResources[driverName].Pools[poolName] = generatePool(device, fabricID)
+	var generation int64 = 1
+	pool := m.namedDriverResources[driverName].Pools[poolName]
+	if len(pool.Slices) == 0 {
+		m.namedDriverResources[driverName].Pools[poolName] = generatePool(device, fabricID, generation)
+		return true
+	} else {
+		if len(pool.Slices[0].Devices) != device.availableDeviceCount {
+			generation = pool.Generation
+			generation++
+			m.namedDriverResources[driverName].Pools[poolName] = generatePool(device, fabricID, generation)
+			return true
+		}
+	}
+	return false
 }
 
 func getDeviceInfos(cm *corev1.ConfigMap) ([]DeviceInfo, error) {
@@ -411,6 +429,57 @@ func initDriverResources(devInfos []DeviceInfo) map[string]*resourceslice.Driver
 		result[devInfo.DriverName] = driverResources
 	}
 	return result
+}
+
+func generatePool(device *device, fabricID int, generation int64) resourceslice.Pool {
+	var devices []resourceapi.Device
+	for i := 0; i < device.availableDeviceCount; i++ {
+		d := resourceapi.Device{
+			Name: fmt.Sprintf("%s-gpu%d", device.k8sDeviceName, i),
+			Basic: &resourceapi.BasicDevice{
+				Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
+					"type": {
+						StringValue: ptr.To(GpuDeviceType),
+					},
+				},
+			},
+		}
+		for key, value := range device.draAttributes {
+			d.Basic.Attributes[resourceapi.QualifiedName(key)] = resourceapi.DeviceAttribute{StringValue: ptr.To(value)}
+		}
+		devices = append(devices, d)
+	}
+	pool := resourceslice.Pool{
+		NodeSelector: &corev1.NodeSelector{
+			NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{
+					MatchExpressions: []corev1.NodeSelectorRequirement{
+						{
+							Key:      device.k8sDeviceName,
+							Operator: corev1.NodeSelectorOpIn,
+							Values: []string{
+								"true",
+							},
+						},
+						{
+							Key:      "fabric",
+							Operator: corev1.NodeSelectorOpIn,
+							Values: []string{
+								strconv.Itoa(fabricID),
+							},
+						},
+					},
+				},
+			},
+		},
+		Slices: []resourceslice.Slice{
+			{
+				Devices: devices,
+			},
+		},
+		Generation: generation,
+	}
+	return pool
 }
 
 func (in deviceList) DeepCopy() (out deviceList) {
