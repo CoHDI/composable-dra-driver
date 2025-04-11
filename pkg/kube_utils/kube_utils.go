@@ -213,13 +213,28 @@ func (kc *KubeControllers) Run() error {
 	return nil
 }
 
+func (kc *KubeControllers) GetNode(nodeName string) (*corev1.Node, error) {
+	obj, exists, err := kc.nodeInformer.GetIndexer().GetByKey(nodeName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get node: %w", err)
+	}
+	if !exists {
+		slog.Warn("not exists node", "nodeName", nodeName)
+	}
+	node, ok := obj.(*corev1.Node)
+	if !ok {
+		return nil, fmt.Errorf("unexpected type %T", obj)
+	}
+	return node.DeepCopy(), nil
+}
+
 func (kc *KubeControllers) GetConfigMap(key string) (*corev1.ConfigMap, error) {
 	obj, exists, err := kc.configMapInformer.GetIndexer().GetByKey(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get configmap: %w", err)
 	}
 	if !exists {
-		slog.Warn("not exists configmap")
+		slog.Warn("not exists configmap", "configMap", key)
 		return nil, nil
 	}
 	cm, ok := obj.(*corev1.ConfigMap)
@@ -235,6 +250,7 @@ func (kc *KubeControllers) GetSecret(key string) (*corev1.Secret, error) {
 		return nil, fmt.Errorf("failed to get secret: %w", err)
 	}
 	if !exists {
+		slog.Warn("not exists secret", "secret", key)
 		return nil, nil
 	}
 	secret, ok := obj.(*corev1.Secret)
