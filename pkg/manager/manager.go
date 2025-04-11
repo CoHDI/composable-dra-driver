@@ -13,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1beta1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
@@ -23,8 +24,10 @@ import (
 )
 
 const (
-	configMapName = "composable-dra/composable-dra-dds"
-	GpuDeviceType = "gpu"
+	configMapName  = "composable-dra/composable-dra-dds"
+	deviceInfoKey  = "device-info"
+	labelPrefixKey = "label-prefix"
+	GpuDeviceType  = "gpu"
 )
 
 type CDIManager struct {
@@ -33,6 +36,7 @@ type CDIManager struct {
 	discoveryClient      discovery.DiscoveryInterface
 	namedDriverResources map[string]*resourceslice.DriverResources
 	deviceInfos          []DeviceInfo
+	labelPrefix          string
 	cdiClient            *client.CDIClient
 	kubecontrollers      *kube_utils.KubeControllers
 }
@@ -127,8 +131,13 @@ func StartCDIManager(ctx context.Context, config *config.Config) error {
 		return err
 	}
 	var devInfos []DeviceInfo
+	var labelPrefix string
 	if cm != nil {
 		devInfos, err = getDeviceInfos(cm)
+		if err != nil {
+			return err
+		}
+		labelPrefix, err = getLabelPrefix(cm)
 		if err != nil {
 			return err
 		}
@@ -143,6 +152,7 @@ func StartCDIManager(ctx context.Context, config *config.Config) error {
 		discoveryClient:      discoveryClient,
 		namedDriverResources: ndr,
 		deviceInfos:          devInfos,
+		labelPrefix:          labelPrefix,
 		cdiClient:            cdiclient,
 		kubecontrollers:      kc,
 	}
@@ -157,6 +167,8 @@ func StartCDIManager(ctx context.Context, config *config.Config) error {
 		err := m.startCheckResourcePoolLoop(ctx, controllers)
 		if err != nil {
 			slog.Error("Loop Failed", "error", err)
+		} else {
+			slog.Info("Loop Successful")
 		}
 	}, config.ScanInterval, ctx.Done())
 	return nil
@@ -253,14 +265,20 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 		return err
 	}
 	for _, machine := range machineInfos.machines {
-		slog.Info("machine information", "nodeName", machine.nodeName, "machineUUID", machine.machineUUID, "fabricID", machine.fabricID)
+		slog.Debug("machine information", "nodeName", machine.nodeName, "machineUUID", machine.machineUUID, "fabricID", machine.fabricID)
 		for _, device := range machine.deviceList.devices {
-			slog.Info("device information", "nodeName", machine.nodeName, "modelName", device.modelName, "available", device.availableDeviceCount, "min", device.minDeviceCount, "max", device.maxDeviceCount)
+			slog.Debug("device information", "nodeName", machine.nodeName, "modelName", device.modelName, "available", device.availableDeviceCount, "min", device.minDeviceCount, "max", device.maxDeviceCount)
 		}
 	}
 
 	// Update ResourceSlice using machineInfos
-	err = m.manageCDIResourceSlices(ctx, machineInfos, controllers)
+	err = m.manageCDIResourceSlices(machineInfos, controllers)
+	if err != nil {
+		return err
+	}
+
+	// Add labels to Node
+	err = m.manageCDINodeLabel(ctx, machineInfos)
 	if err != nil {
 		return err
 	}
@@ -344,11 +362,11 @@ func (m *CDIManager) setMinMaxNums(mInfos machineInfos) error {
 	return nil
 }
 
-func (m *CDIManager) manageCDIResourceSlices(ctx context.Context, machineInfos machineInfos, controlles map[string]*resourceslice.Controller) error {
+func (m *CDIManager) manageCDIResourceSlices(mInfos machineInfos, controlles map[string]*resourceslice.Controller) error {
 	needUpdate := make(map[string]bool)
 	for driverName := range m.namedDriverResources {
 		fabricFound := make(map[int]bool)
-		for _, machine := range machineInfos.machines {
+		for _, machine := range mInfos.machines {
 			if !fabricFound[machine.fabricID] {
 				for _, device := range machine.deviceList.devices {
 					if device.driverName == driverName {
@@ -394,12 +412,46 @@ func (m *CDIManager) updatePool(driverName string, poolName string, device *devi
 	return false
 }
 
+func (m *CDIManager) manageCDINodeLabel(ctx context.Context, mInfo machineInfos) error {
+	slog.Info("set labels to node")
+	for _, machine := range mInfo.machines {
+		node, err := m.kubecontrollers.GetNode(machine.nodeName)
+		if err != nil {
+			slog.Error("failed to get node", "nodeName", machine.nodeName)
+			return err
+		}
+		// Label for fabric
+		fabricLabelKey := m.labelPrefix + "/" + "fabric"
+		node.Labels[fabricLabelKey] = strconv.Itoa(machine.fabricID)
+		slog.Debug("set labels for fabric", "nodeName", machine.nodeName, "label", fabricLabelKey+"="+strconv.Itoa(machine.fabricID))
+		// Label for the min and max number of devices
+		for _, device := range machine.deviceList.devices {
+			maxLabelKey := m.labelPrefix + "/" + device.k8sDeviceName + "-size-max"
+			max := strconv.Itoa(device.maxDeviceCount)
+			node.Labels[maxLabelKey] = max
+
+			minLabelKey := m.labelPrefix + "/" + device.k8sDeviceName + "-size-min"
+			min := strconv.Itoa(device.minDeviceCount)
+			node.Labels[minLabelKey] = min
+
+			slog.Debug("set labels for min and max of devices", "nodeName", machine.nodeName, "label", minLabelKey+"="+min, "label", maxLabelKey+"="+max)
+		}
+
+		_, err = m.coreClient.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
+		if err != nil {
+			slog.Error("failed to update node label", "nodeName", machine.nodeName)
+		}
+	}
+
+	return nil
+}
+
 func getDeviceInfos(cm *corev1.ConfigMap) ([]DeviceInfo, error) {
 	if cm.Data == nil {
 		slog.Warn("configmap data is nil")
 		return nil, nil
 	}
-	if devInfoStr, found := cm.Data["device-info"]; !found {
+	if devInfoStr, found := cm.Data[deviceInfoKey]; !found {
 		slog.Warn("configmap device-info is nil")
 		return nil, nil
 	} else {
@@ -411,6 +463,19 @@ func getDeviceInfos(cm *corev1.ConfigMap) ([]DeviceInfo, error) {
 			return nil, err
 		}
 		return devInfo, nil
+	}
+}
+
+func getLabelPrefix(cm *corev1.ConfigMap) (string, error) {
+	if cm.Data == nil {
+		slog.Warn("configmap data is nil")
+		return "", nil
+	}
+	if labelPrefix, found := cm.Data[labelPrefixKey]; !found {
+		slog.Warn("configmap label-prefix is nil")
+		return "", nil
+	} else {
+		return labelPrefix, nil
 	}
 }
 
