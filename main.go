@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/urfave/cli/v2"
 )
 
@@ -77,6 +78,7 @@ func newApp() *cli.App {
 			sigs := make(chan os.Signal, 1)
 			signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
 			ctx, cancel := context.WithCancel(c.Context)
+			ctx = logr.NewContextWithSlogLogger(ctx, logger)
 			defer func() {
 				cancel()
 			}()
