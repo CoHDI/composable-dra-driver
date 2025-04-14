@@ -1,24 +1,86 @@
 package client
 
 import (
+	"bytes"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 )
 
 type Request struct {
-	client *http.Client
-	method string
-	scheme string
-	host   string
-	path   string
-
-	params url.Values
-	body   io.Reader
+	method  string
+	scheme  string
+	host    string
+	path    string
+	query   url.Values
+	headers http.Header
+	body    io.Reader
 }
 
 func newRequest(method string) *Request {
 	return &Request{
+		scheme: "https",
 		method: method,
 	}
+}
+
+func (r *Request) setHost(host string) *Request {
+	r.host = host
+	return r
+}
+
+func (r *Request) setPath(path string) *Request {
+	r.path = path
+	return r
+}
+
+func (r *Request) setQuery(query map[string]string) *Request {
+	for queryName, value := range query {
+		if r.query == nil {
+			r.query = make(url.Values)
+		}
+		r.query[queryName] = append(r.query[queryName], value)
+	}
+	return r
+}
+
+func (r *Request) setBody(body string) *Request {
+	r.body = bytes.NewReader([]byte(body))
+	return r
+}
+
+func (r *Request) setHeader(key string, values ...string) *Request {
+	if r.headers == nil {
+		r.headers = http.Header{}
+	}
+	r.headers.Del(key)
+	for _, value := range values {
+		r.headers.Add(key, value)
+	}
+	return r
+}
+
+func (r *Request) url() *url.URL {
+	url := &url.URL{}
+	url.Scheme = r.scheme
+	url.Host = r.host
+
+	if len(r.path) != 0 {
+		url.Path = r.path
+	}
+
+	url.RawQuery = r.query.Encode()
+	return url
+}
+
+func newHTTPRequest(req *Request) (*http.Request, error) {
+	httpReq, err := http.NewRequest(req.method, req.url().String(), req.body)
+	if err != nil {
+		slog.Error("failed to create http request")
+		return nil, err
+	}
+
+	httpReq.Header = req.headers
+	return httpReq, nil
 }

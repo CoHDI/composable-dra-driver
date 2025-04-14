@@ -250,8 +250,9 @@ func (kc *KubeControllers) GetSecret(key string) (*corev1.Secret, error) {
 		return nil, fmt.Errorf("failed to get secret: %w", err)
 	}
 	if !exists {
-		slog.Warn("not exists secret", "secret", key)
-		return nil, nil
+		err = fmt.Errorf("not exists secret: %s", key)
+		slog.Error(err.Error())
+		return nil, err
 	}
 	secret, ok := obj.(*corev1.Secret)
 	if !ok {
