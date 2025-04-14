@@ -19,7 +19,7 @@ import (
 
 func main() {
 	if err := newApp().Run(os.Args); err != nil {
-		slog.Error("Command Failed", "error", "command")
+		slog.Error("Command Failed", "error", err)
 		os.Exit(1)
 	}
 }
@@ -28,7 +28,7 @@ func newApp() *cli.App {
 	config := &config.Config{}
 	cliFlags := []cli.Flag{
 		&cli.IntFlag{
-			Name:        "log-level",
+			Name:        "v",
 			Usage:       "Set the log level, CDI_DRA will only log message whose level is higher than this value. Default is 0.\n CDI_DRA logs error at level 8, logs warning at level 4, logs info at level 0 and logs debug at level -4. \n If log level is set larger than 8, CDI_DRA will not log any messages.",
 			Destination: &config.LogLevel,
 		},
@@ -48,6 +48,7 @@ func newApp() *cli.App {
 		&cli.StringFlag{
 			Name:        "cdi-endpoint",
 			Usage:       "Endpoint of CDI API server. Must specify host name where working CDI manager",
+			Required:    true,
 			Destination: &config.CDIEndpoint,
 			EnvVars:     []string{"CDI_ENDPOINT"},
 		},

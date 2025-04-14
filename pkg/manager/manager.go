@@ -10,7 +10,6 @@ import (
 	"math/rand"
 	"strconv"
 
-	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,7 +24,6 @@ import (
 
 const (
 	configMapName  = "composable-dra/composable-dra-dds"
-	deviceInfoKey  = "device-info"
 	labelPrefixKey = "label-prefix"
 	GpuDeviceType  = "gpu"
 )
@@ -35,25 +33,10 @@ type CDIManager struct {
 	machineClient        dynamic.Interface
 	discoveryClient      discovery.DiscoveryInterface
 	namedDriverResources map[string]*resourceslice.DriverResources
-	deviceInfos          []DeviceInfo
+	deviceInfos          []config.DeviceInfo
 	labelPrefix          string
 	cdiClient            *client.CDIClient
 	kubecontrollers      *kube_utils.KubeControllers
-}
-
-type DeviceInfo struct {
-	// Index of device
-	Index int `yaml:"index"`
-	// Name of a device model registered to ResourceManager in CDI
-	CDIModelName string `yaml:"cdi-model-name"`
-	// Attributes of ResourceSlice that will be exposed. It corresponds to vendor's ResourceSlice
-	DRAAttributes map[string]string `yaml:"dra-attributes"`
-	// Name of vendor DRA driver for a device
-	DriverName string `yaml:"driver-name"`
-	// DRA pool name or label name affixed to a node. Basic format is "<vendor>-<model>"
-	K8sDeviceName string `yaml:"k8s-device-name"`
-	// List of device indexes unable to coexist in the same node
-	CanNotCoexistWith []int `yaml:"cannot-coexists-with"`
 }
 
 type machine struct {
@@ -74,7 +57,7 @@ type device struct {
 	maxDeviceCount       int
 }
 
-func StartCDIManager(ctx context.Context, config *config.Config) error {
+func StartCDIManager(ctx context.Context, cfg *config.Config) error {
 	kconfig, err := kube_utils.NewClientConfig()
 	if err != nil {
 		return err
@@ -112,7 +95,7 @@ func StartCDIManager(ctx context.Context, config *config.Config) error {
 	}
 
 	// Build client to connect CDI components like FM, IM and CM
-	cdiclient, err := client.BuildCDIClient(config, kc)
+	cdiclient, err := client.BuildCDIClient(cfg, kc)
 	if err != nil {
 		return err
 	}
@@ -123,10 +106,10 @@ func StartCDIManager(ctx context.Context, config *config.Config) error {
 		slog.Error("Cannot get config map for device config", "error", err)
 		return err
 	}
-	var devInfos []DeviceInfo
+	var devInfos []config.DeviceInfo
 	var labelPrefix string
 	if cm != nil {
-		devInfos, err = getDeviceInfos(cm)
+		devInfos, err = config.GetDeviceInfos(cm)
 		if err != nil {
 			return err
 		}
@@ -163,7 +146,7 @@ func StartCDIManager(ctx context.Context, config *config.Config) error {
 		} else {
 			slog.Info("Loop Successful")
 		}
-	}, config.ScanInterval, ctx.Done())
+	}, cfg.ScanInterval, ctx.Done())
 	return nil
 }
 
@@ -439,26 +422,6 @@ func (m *CDIManager) manageCDINodeLabel(ctx context.Context, machines []*machine
 	return nil
 }
 
-func getDeviceInfos(cm *corev1.ConfigMap) ([]DeviceInfo, error) {
-	if cm.Data == nil {
-		slog.Warn("configmap data is nil")
-		return nil, nil
-	}
-	if devInfoStr, found := cm.Data[deviceInfoKey]; !found {
-		slog.Warn("configmap device-info is nil")
-		return nil, nil
-	} else {
-		var devInfo []DeviceInfo
-		bytes := []byte(devInfoStr)
-		err := yaml.Unmarshal(bytes, &devInfo)
-		if err != nil {
-			slog.Error("Failed yaml unmarshal", "error", err)
-			return nil, err
-		}
-		return devInfo, nil
-	}
-}
-
 func getLabelPrefix(cm *corev1.ConfigMap) (string, error) {
 	if cm.Data == nil {
 		slog.Warn("configmap data is nil")
@@ -472,7 +435,7 @@ func getLabelPrefix(cm *corev1.ConfigMap) (string, error) {
 	}
 }
 
-func initDriverResources(devInfos []DeviceInfo) map[string]*resourceslice.DriverResources {
+func initDriverResources(devInfos []config.DeviceInfo) map[string]*resourceslice.DriverResources {
 	foundDriver := make(map[string]bool)
 	result := make(map[string]*resourceslice.DriverResources)
 	for _, devInfo := range devInfos {

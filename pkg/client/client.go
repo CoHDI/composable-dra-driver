@@ -3,7 +3,16 @@ package client
 import (
 	"cdi_dra/pkg/config"
 	"cdi_dra/pkg/kube_utils"
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"math/rand"
 	"net/http"
+	"time"
 
 	"golang.org/x/oauth2"
 )
@@ -13,6 +22,18 @@ type CDIClient struct {
 	TenantId    string
 	Client      *http.Client
 	TokenSource oauth2.TokenSource
+}
+
+type IMToken struct {
+	AccessToken      string `json:"access_token"`
+	ExpiresIn        int64  `json:"expires_in"`
+	RefreshExpiresIn int64  `json:"refresh_expires_in"`
+	RefreshToken     string `json:"refresh_token"`
+	TokenType        string `json:"token_type"`
+	IDToken          string `json:"id_token"`
+	NotBeforePolicy  int64  `json:"not-before-policy"`
+	SessionState     string `json:"session_state"`
+	Scope            string `json:"scope"`
 }
 
 type FMMachineList struct {
@@ -81,29 +102,98 @@ type Resource struct {
 	MaxResourceCount int    `json:"max_resource_count"`
 }
 
-func BuildCDIClient(config *config.Config, controllers *kube_utils.KubeControllers) (*CDIClient, error) {
-	var standardClient = http.DefaultClient
+type requestIDKey struct{}
+
+func BuildCDIClient(config *config.Config, kc *kube_utils.KubeControllers) (*CDIClient, error) {
+	secret, err := kc.GetSecret(secretKey)
+	if err != nil {
+		return nil, err
+	}
+	var cert []byte
+	if secret.Data != nil {
+		cert = secret.Data["certificate"]
+	}
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(cert)
+
+	tlsConfig := &tls.Config{
+		RootCAs: caCertPool,
+	}
+
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+	}
+
+	httpClient := &http.Client{
+		Transport: transport,
+	}
 
 	client := &CDIClient{
 		Host:     config.CDIEndpoint,
 		TenantId: config.TenantID,
-		Client:   standardClient,
+		Client:   httpClient,
 	}
 
-	client.TokenSource = CachedIMTokenSource(client, controllers)
+	client.TokenSource = CachedIMTokenSource(client, kc)
 
 	return client, nil
 }
 
+func (c *CDIClient) GetIMToken(ctx context.Context, secret idManagerSecret) (*IMToken, error) {
+	imToken := &IMToken{}
+	r := newRequest(http.MethodPost)
+	path := fmt.Sprintf("id_manager/realms/%s/protocol/openid-connect/token", secret.realm)
+
+	bodyStr := "client_id=%s&client_secret=%s&username=%s&password=%s&scope=openid&response=id_token token&grant_type=password"
+	data := fmt.Sprintf(bodyStr, secret.client_id, secret.client_secret, secret.username, secret.password)
+
+	req := r.setHost(c.Host).setPath(path).setBody(data).setHeader("Content-Type", "application/x-www-form-urlencoded")
+
+	httpReq, err := newHTTPRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	ctx = context.WithValue(ctx, requestIDKey{}, RandomString(6))
+	resp, err := c.do(ctx, httpReq)
+	if err != nil {
+		return nil, err
+	}
+	err = resp.into(ctx, imToken)
+	if err != nil {
+		return nil, err
+	}
+	return imToken, nil
+}
+
 func (c *CDIClient) GetFMMachineList() (*FMMachineList, error) {
-	return &FMMachineList{}, nil
+	fmMachineList := &FMMachineList{}
+	r := newRequest(http.MethodGet)
+	path := "/fabric_manager/api/v1/machines"
+	query := map[string]string{
+		"tenant_uuid": c.TenantId,
+	}
+	_, err := c.TokenSource.Token()
+	if err != nil {
+		return nil, err
+	}
+	r.setHost(c.Host).setPath(path).setQuery(query)
+	return fmMachineList, nil
 }
 
 func (c *CDIClient) GetFMAvailableReservedResources(muuid string) (FMAvailableReservedResources, error) {
-	var fmResources FMAvailableReservedResources
-	// req := newRequest(http.MethodGet)
-	c.TokenSource.Token()
-	return fmResources, nil
+	var fmAvailables FMAvailableReservedResources
+	r := newRequest(http.MethodGet)
+	path := "/fabric_manager/api/v1/tenants/" + c.TenantId
+	query := map[string]string{
+		"tenant_uuid": c.TenantId,
+		"res_type":    "gpu",
+	}
+	_, err := c.TokenSource.Token()
+	if err != nil {
+		return fmAvailables, err
+	}
+	r.setHost(c.Host).setPath(path).setQuery(query)
+	return fmAvailables, nil
 }
 
 func (c *CDIClient) GetCMNodeGroups() (CMNodeGroups, error) {
@@ -129,4 +219,70 @@ func (c *CDIClient) GetCMNodeGroupInfo(ng NodeGroup) (CMNodeGroupInfo, error) {
 			},
 		},
 	}, nil
+}
+
+type result struct {
+	body       []byte
+	statusCode int
+}
+
+func (c *CDIClient) do(ctx context.Context, req *http.Request) (*result, error) {
+	var result result
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		slog.Error("faild to Do http request", "error", err)
+		return &result, err
+	}
+	defer resp.Body.Close()
+
+	if resp.Body != nil {
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			slog.Error("unexpected error occured when reading response body", "error", err)
+			return &result, err
+		}
+		result.body = data
+	}
+	result.statusCode = resp.StatusCode
+	return &result, nil
+}
+
+func (r *result) into(ctx context.Context, v any) error {
+	if r.statusCode < 200 || r.statusCode >= 300 {
+		res := &unsuccessfulResponse{}
+		if err := json.Unmarshal(r.body, res); err != nil || res.Detail.Message == "" {
+			res.Detail.Message = string(r.body)
+		}
+		err := fmt.Errorf("received unsuccessful response")
+		slog.Error(err.Error(), "code", r.statusCode, "requestID", ctx.Value(requestIDKey{}).(string))
+		slog.Error("Detail:", "msg", res.Detail.Message, "requestID", ctx.Value(requestIDKey{}).(string))
+		return err
+	}
+	if err := json.Unmarshal(r.body, v); err != nil {
+		return fmt.Errorf("failed to read response data into %T", v)
+	}
+	return nil
+}
+
+type unsuccessfulResponse struct {
+	Status string         `json:"status"`
+	Detail responseDetail `json:"detail"`
+}
+
+type responseDetail struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+const CharSet = "123456789"
+
+func RandomString(n int) string {
+	result := make([]byte, n)
+	for i := range result {
+		result[i] = CharSet[rand.Intn(len(CharSet))]
+	}
+	return string(result)
 }

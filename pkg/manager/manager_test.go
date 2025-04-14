@@ -1,15 +1,12 @@
 package manager
 
 import (
-	"cdi_dra/pkg/test_utils"
+	"cdi_dra/pkg/config"
 	"context"
 	"reflect"
-	"slices"
-	"strings"
 	"testing"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	fakekube "k8s.io/client-go/kubernetes/fake"
@@ -17,8 +14,8 @@ import (
 	"k8s.io/utils/ptr"
 )
 
-func createDeviceInfos() []DeviceInfo {
-	devInfo1 := DeviceInfo{
+func createDeviceInfos() []config.DeviceInfo {
+	devInfo1 := config.DeviceInfo{
 		Index:        1,
 		CDIModelName: "A100 40G",
 		DRAAttributes: map[string]string{
@@ -28,7 +25,7 @@ func createDeviceInfos() []DeviceInfo {
 		K8sDeviceName:     "nvidia-a100-40G",
 		CanNotCoexistWith: []int{2, 3},
 	}
-	devInfo2 := DeviceInfo{
+	devInfo2 := config.DeviceInfo{
 		Index:        2,
 		CDIModelName: "H100",
 		DRAAttributes: map[string]string{
@@ -39,7 +36,7 @@ func createDeviceInfos() []DeviceInfo {
 		CanNotCoexistWith: []int{1, 3},
 	}
 
-	devInfo3 := DeviceInfo{
+	devInfo3 := config.DeviceInfo{
 		Index:        3,
 		CDIModelName: "Gaudi3",
 		DRAAttributes: map[string]string{
@@ -50,7 +47,7 @@ func createDeviceInfos() []DeviceInfo {
 		CanNotCoexistWith: []int{1, 2},
 	}
 
-	devInfos := []DeviceInfo{devInfo1, devInfo2, devInfo3}
+	devInfos := []config.DeviceInfo{devInfo1, devInfo2, devInfo3}
 
 	return devInfos
 }
@@ -92,64 +89,6 @@ func createTestManager() *CDIManager {
 	return &CDIManager{
 		coreClient:           coreClient,
 		namedDriverResources: ndr,
-	}
-
-}
-
-func TestGetDeviceInfos(t *testing.T) {
-	cms := test_utils.CreateConfigMap()
-
-	testCases := []struct {
-		name                string
-		cm                  *corev1.ConfigMap
-		expectedDriverNames []string
-		expectedLength      int
-		expectedErr         bool
-		expectedErrMsg      string
-	}{
-		{
-			name:                "When provided correct ConfigMap",
-			cm:                  cms[0],
-			expectedDriverNames: []string{"gpu.nvidia.com"},
-			expectedLength:      1,
-			expectedErr:         false,
-		},
-		{
-			name:        "When not exists device-info in ConfigMap",
-			cm:          cms[1],
-			expectedErr: false,
-		},
-		{
-			name:           "When device-info is not formed as YAML",
-			cm:             cms[2],
-			expectedErr:    true,
-			expectedErrMsg: "yaml: unmarshal errors",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			devInfos, err := getDeviceInfos(tc.cm)
-			if tc.expectedErr {
-				if !strings.Contains(err.Error(), tc.expectedErrMsg) {
-					t.Errorf("expected error: %q, got %q", tc.expectedErrMsg, err.Error())
-				}
-			} else if !tc.expectedErr {
-				if err != nil {
-					t.Errorf("unexpected error: %v", err)
-				}
-			}
-			if devInfos != nil {
-				if len(devInfos) != tc.expectedLength {
-					t.Error("unexpected length of device info")
-				}
-				for _, devInfo := range devInfos {
-					if !slices.Contains(tc.expectedDriverNames, devInfo.DriverName) {
-						t.Errorf("expected driver name %v, but got %v", tc.expectedDriverNames, devInfo.DriverName)
-					}
-				}
-			}
-		})
 	}
 
 }
