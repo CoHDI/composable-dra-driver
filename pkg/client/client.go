@@ -15,6 +15,32 @@ type CDIClient struct {
 	TokenSource oauth2.TokenSource
 }
 
+type FMMachineList struct {
+	Data Machines `json:"data"`
+}
+
+type Machines struct {
+	Machines []Machine `json:"machines"`
+}
+
+type Machine struct {
+	FabricUUID   string            `json:"fabric_uuid"`
+	FabricID     int               `json:"fabric_id"`
+	MachineUUID  string            `json:"mach_uuid"`
+	MachineID    int               `json:"mach_id"`
+	MachineName  string            `json:"mach_name"`
+	MachineOwner string            `json:"mach_owner"`
+	Resources    []MachineResource `json:"resources"`
+}
+
+type MachineResource struct {
+	ResourceUUID     string `json:"res_uuid"`
+	ResourceName     string `json:"res_name"`
+	ResourceType     string `json:"res_type"`
+	ResourceStatus   int    `json:"res_status"`
+	ResourceOPStatus string `json:"res_op_status"`
+}
+
 type FMAvailableReservedResources struct {
 	FabricUUID          string `json:"fabric_uuid"`
 	FabricID            int    `json:"fabric_id"`
@@ -67,6 +93,10 @@ func BuildCDIClient(config *config.Config, controllers *kube_utils.KubeControlle
 	client.TokenSource = CachedIMTokenSource(client, controllers)
 
 	return client, nil
+}
+
+func (c *CDIClient) GetFMMachineList() (*FMMachineList, error) {
+	return &FMMachineList{}, nil
 }
 
 func (c *CDIClient) GetFMAvailableReservedResources(muuid string) (FMAvailableReservedResources, error) {
