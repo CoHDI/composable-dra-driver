@@ -9,3 +9,7 @@ In comparison to the Dynamic Device Scaler, the Composable DRA Driver's role is 
 - Collect resource information from the Composable Disaggregated Infrastructure.
 - Provide Kubernetes with a view of available devices, which are those not yet attached to a node, as ResourceSlices.
 - Add labels to the node that provide supplementary information about the devices, including upper and lower limits on the number of devices that can be attached.
+
+The following diagram shows how this component is positioned in the overall architecture.
+
+![alt text](doc/cdidra1.png)
