@@ -1,75 +1,9 @@
 package kube_utils
 
 import (
-	"cdi_dra/pkg/test_utils"
+	"cdi_dra/pkg/config"
 	"testing"
-
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	fakedynamic "k8s.io/client-go/dynamic/fake"
-	fakekube "k8s.io/client-go/kubernetes/fake"
 )
-
-type testConfig struct {
-	configMaps []*corev1.ConfigMap
-}
-
-type testConfigMap struct {
-	cmName      string
-	cmNameSpace string
-	data        map[string]string
-}
-
-type testControllerShutdownFunc func()
-
-func mustCreateKubeControllers(t testing.TB, testConfig *testConfig) (*KubeControllers, testControllerShutdownFunc) {
-	configMapObjects := make([]runtime.Object, 0)
-	for _, cm := range testConfig.configMaps {
-		configMapObjects = append(configMapObjects, cm)
-	}
-	machineObjects := make([]runtime.Object, 0)
-	kubeclient := fakekube.NewSimpleClientset(configMapObjects...)
-	dynamicclient := fakedynamic.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{
-			{Group: Metal3APIGroup, Version: Metal3APIVersion, Resource: BareMetalHostResourceName}: "kindList",
-			{Group: MachineAPIGroup, Version: MachineAPIVersion, Resource: MachineResourceName}:     "kindList",
-		},
-		machineObjects...,
-	)
-	machineAPI := &metav1.APIResourceList{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       MachineResourceName,
-			APIVersion: MachineAPIVersion,
-		},
-		GroupVersion: MachineAPIGroup + "/" + MachineAPIVersion,
-	}
-	bmhAPI := &metav1.APIResourceList{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       BareMetalHostResourceName,
-			APIVersion: Metal3APIVersion,
-		},
-		GroupVersion: Metal3APIGroup + "/" + Metal3APIVersion,
-	}
-	kubeclient.Fake.Resources = append(kubeclient.Fake.Resources, machineAPI, bmhAPI)
-	discoveryclient := kubeclient.Discovery()
-
-	stopCh := make(chan struct{})
-	controllers, err := CreateKubeControllers(kubeclient, dynamicclient, discoveryclient, stopCh)
-	if err != nil {
-		t.Fatal("failed to create test controller")
-	}
-	if err := controllers.Run(); err != nil {
-		t.Fatalf("failed to run controller: %v", err)
-	}
-
-	return controllers, func() {
-		close(stopCh)
-	}
-
-}
 
 func TestKubeControllerGetConfigMap(t *testing.T) {
 	type testConfigMap struct {
@@ -103,9 +37,13 @@ func TestKubeControllerGetConfigMap(t *testing.T) {
 		},
 	}
 
-	config := &testConfig{}
-	config.configMaps = test_utils.CreateConfigMap()
-	controllers, stop := mustCreateKubeControllers(t, config)
+	testConfig := &TestConfig{}
+	configMaps, err := config.CreateConfigMap()
+	if err != nil {
+		t.Fatalf("failed to get configmap")
+	}
+	testConfig.ConfigMaps = configMaps
+	controllers, stop := MustCreateKubeControllers(t, testConfig)
 	defer stop()
 
 	for _, tc := range testCases {

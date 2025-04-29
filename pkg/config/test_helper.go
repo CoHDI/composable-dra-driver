@@ -1,11 +1,29 @@
-package test_utils
+package config
 
 import (
+	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func CreateConfigMap() []*corev1.ConfigMap {
+func CreateConfigMap() ([]*corev1.ConfigMap, error) {
+	deviceInfos := []DeviceInfo{
+		{
+			Index:        1,
+			CDIModelName: "A100 40G",
+			DRAAttributes: map[string]string{
+				"productName": "NVIDIA A100 40GB PCIe",
+			},
+			DriverName:        "gpu.nvidia.com",
+			K8sDeviceName:     "nvidia-a100-40",
+			CanNotCoexistWith: []int{2, 3, 4},
+		},
+	}
+
+	data, err := yaml.Marshal(deviceInfos)
+	if err != nil {
+		return nil, err
+	}
 	cm1 := &corev1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "ConfigMap",
@@ -15,15 +33,7 @@ func CreateConfigMap() []*corev1.ConfigMap {
 			Namespace: "composable-dra",
 		},
 		Data: map[string]string{
-			"device-info": `
-- index: 1
-  cdi-model-name: "A100 40G"
-  dra-attributes:
-    productName: "NVIDIA A100 40GB PCIe"
-  label-key-model: "composable-a100-40G"
-  driver-name: "gpu.nvidia.com"
-  k8s-device-name: "nvidia-a100-40"
-  cannot-coexists-with: [2, 3, 4]`,
+			DeviceInfoKey: string(data),
 		},
 	}
 	cm2 := &corev1.ConfigMap{
@@ -54,5 +64,21 @@ func CreateConfigMap() []*corev1.ConfigMap {
 
 	cms := []*corev1.ConfigMap{cm1, cm2, cm3}
 
-	return cms
+	return cms, nil
+}
+
+func CreateSecret(certPem string) *corev1.Secret {
+	secret := &corev1.Secret{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "Secret",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "composable-dra-secret",
+			Namespace: "composable-dra",
+		},
+		Data: map[string][]byte{
+			"certificate": []byte(certPem),
+		},
+	}
+	return secret
 }
