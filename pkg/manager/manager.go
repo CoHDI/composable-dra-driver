@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
@@ -211,7 +210,7 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 		}
 		var deviceList deviceList = make(map[string]*device)
 		for _, deviceInfo := range m.deviceInfos {
-			availableNum, err := m.getAvailableNums(machine.machineUUID, deviceInfo.CDIModelName)
+			availableNum, err := m.getAvailableNums(ctx, machine.machineUUID, deviceInfo.CDIModelName)
 			if err != nil {
 				return err
 			}
@@ -303,15 +302,15 @@ func (m *CDIManager) getMachineList(ctx context.Context) (*client.FMMachineList,
 	return mList, nil
 }
 
-func (m *CDIManager) getAvailableNums(muuid string, modelName string) (int, error) {
-	_, err := m.cdiClient.GetFMAvailableReservedResources(muuid)
+func (m *CDIManager) getAvailableNums(ctx context.Context, muuid string, modelName string) (int, error) {
+	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
+	slog.Info("trying to get available reserved resources from FabricManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	availableResources, err := m.cdiClient.GetFMAvailableReservedResources(ctx, muuid, modelName)
 	if err != nil {
 		return 0, err
 	}
-	// TODO: preliminarily return random available number
-	num := rand.Intn(2) + 1
-	// num := 1
-	return num, nil
+	slog.Info("FM available reserved resources API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	return availableResources.ReservedResourceNum, nil
 }
 
 func (m *CDIManager) setMinMaxNums(machines []*machine) error {
