@@ -68,6 +68,12 @@ type FMAvailableReservedResources struct {
 	ReservedResourceNum int    `json:"reserved_res_num_per_fabric"`
 }
 
+type Condition struct {
+	Column   string `json:"column"`
+	Operator string `json:"operator"`
+	Value    string `json:"value"`
+}
+
 type CMNodeGroups struct {
 	NodeGroups []NodeGroup `json:"nodegroups"`
 }
@@ -167,7 +173,7 @@ func (c *CDIClient) GetIMToken(ctx context.Context, secret idManagerSecret) (*IM
 func (c *CDIClient) GetFMMachineList(ctx context.Context) (*FMMachineList, error) {
 	fmMachineList := &FMMachineList{}
 	r := newRequest(http.MethodGet)
-	path := "/fabric_manager/api/v1/machines"
+	path := "fabric_manager/api/v1/machines"
 	query := map[string]string{
 		"tenant_uuid": c.TenantId,
 	}
@@ -185,7 +191,6 @@ func (c *CDIClient) GetFMMachineList(ctx context.Context) (*FMMachineList, error
 	if err != nil {
 		return nil, err
 	}
-
 	err = resp.into(ctx, fmMachineList)
 	if err != nil {
 		return nil, err
@@ -193,19 +198,42 @@ func (c *CDIClient) GetFMMachineList(ctx context.Context) (*FMMachineList, error
 	return fmMachineList, nil
 }
 
-func (c *CDIClient) GetFMAvailableReservedResources(muuid string) (FMAvailableReservedResources, error) {
-	var fmAvailables FMAvailableReservedResources
+func (c *CDIClient) GetFMAvailableReservedResources(ctx context.Context, muuid string, modelName string) (*FMAvailableReservedResources, error) {
+	fmAvailables := &FMAvailableReservedResources{}
 	r := newRequest(http.MethodGet)
-	path := "/fabric_manager/api/v1/tenants/" + c.TenantId
+	path := "fabric_manager/api/v1/machines/" + muuid + "/available-reserved-resources"
+	condition := Condition{
+		Column:   "model",
+		Operator: "eq",
+		Value:    modelName,
+	}
+	jsonData, err := json.Marshal(condition)
+	if err != nil {
+		slog.Error("failed to marshal json", "error", err)
+	}
 	query := map[string]string{
 		"tenant_uuid": c.TenantId,
 		"res_type":    "gpu",
+		"condition":   string(jsonData),
 	}
-	_, err := c.TokenSource.Token()
+	token, err := c.TokenSource.Token()
 	if err != nil {
-		return fmAvailables, err
+		return nil, err
 	}
-	r.setHost(c.Host).setPath(path).setQuery(query)
+	req := r.setHost(c.Host).setPath(path).setQuery(query).setHeader("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
+
+	httpReq, err := newHTTPRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, httpReq)
+	if err != nil {
+		return nil, err
+	}
+	err = resp.into(ctx, fmAvailables)
+	if err != nil {
+		return nil, err
+	}
 	return fmAvailables, nil
 }
 
