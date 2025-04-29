@@ -80,21 +80,21 @@ type NodeGroup struct {
 }
 
 type CMNodeGroupInfo struct {
-	UUID         string     `json:"uuid"`
-	Name         string     `json:"name"`
-	Composable   bool       `json:"composable"`
-	NodeCount    int        `json:"node_count"`
-	Role         string     `json:"role"`
-	MinNodeCount int        `json:"min_node_count"`
-	MaxNodeCount int        `json:"max_node_count"`
-	Status       string     `json:"status"`
-	StatusReason string     `json:"status_reason"`
-	Resources    []Resource `json:"resources"`
-	NodeIDs      []string   `json:"node_ids"`
-	MachineIDs   []string   `json:"mach_ids"`
+	UUID         string              `json:"uuid"`
+	Name         string              `json:"name"`
+	Composable   bool                `json:"composable"`
+	NodeCount    int                 `json:"node_count"`
+	Role         string              `json:"role"`
+	MinNodeCount int                 `json:"min_node_count"`
+	MaxNodeCount int                 `json:"max_node_count"`
+	Status       string              `json:"status"`
+	StatusReason string              `json:"status_reason"`
+	Resources    []NodeGroupResource `json:"resources"`
+	NodeIDs      []string            `json:"node_ids"`
+	MachineIDs   []string            `json:"mach_ids"`
 }
 
-type Resource struct {
+type NodeGroupResource struct {
 	ResourceName     string `json:"resource_name"`
 	ResourceType     string `json:"resource_type"`
 	ModelName        string `json:"mode_name"`
@@ -102,7 +102,7 @@ type Resource struct {
 	MaxResourceCount int    `json:"max_resource_count"`
 }
 
-type requestIDKey struct{}
+type RequestIDKey struct{}
 
 func BuildCDIClient(config *config.Config, kc *kube_utils.KubeControllers) (*CDIClient, error) {
 	secret, err := kc.GetSecret(secretKey)
@@ -153,7 +153,6 @@ func (c *CDIClient) GetIMToken(ctx context.Context, secret idManagerSecret) (*IM
 	if err != nil {
 		return nil, err
 	}
-	ctx = context.WithValue(ctx, requestIDKey{}, RandomString(6))
 	resp, err := c.do(ctx, httpReq)
 	if err != nil {
 		return nil, err
@@ -165,18 +164,32 @@ func (c *CDIClient) GetIMToken(ctx context.Context, secret idManagerSecret) (*IM
 	return imToken, nil
 }
 
-func (c *CDIClient) GetFMMachineList() (*FMMachineList, error) {
+func (c *CDIClient) GetFMMachineList(ctx context.Context) (*FMMachineList, error) {
 	fmMachineList := &FMMachineList{}
 	r := newRequest(http.MethodGet)
 	path := "/fabric_manager/api/v1/machines"
 	query := map[string]string{
 		"tenant_uuid": c.TenantId,
 	}
-	_, err := c.TokenSource.Token()
+	token, err := c.TokenSource.Token()
 	if err != nil {
 		return nil, err
 	}
-	r.setHost(c.Host).setPath(path).setQuery(query)
+	req := r.setHost(c.Host).setPath(path).setQuery(query).setHeader("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
+
+	httpReq, err := newHTTPRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, httpReq)
+	if err != nil {
+		return nil, err
+	}
+
+	err = resp.into(ctx, fmMachineList)
+	if err != nil {
+		return nil, err
+	}
 	return fmMachineList, nil
 }
 
@@ -211,7 +224,7 @@ func (c *CDIClient) GetCMNodeGroupInfo(ng NodeGroup) (CMNodeGroupInfo, error) {
 		MachineIDs: []string{
 			"cdi-control-plane",
 		},
-		Resources: []Resource{
+		Resources: []NodeGroupResource{
 			{
 				ModelName:        "A100 40G",
 				MinResourceCount: 1,
@@ -233,7 +246,7 @@ func (c *CDIClient) do(ctx context.Context, req *http.Request) (*result, error) 
 	req = req.WithContext(ctx)
 	resp, err := c.Client.Do(req)
 	if err != nil {
-		slog.Error("faild to Do http request", "error", err)
+		slog.Error("faild to Do http request", "error", err, "requestID", ctx.Value(RequestIDKey{}).(string))
 		return &result, err
 	}
 	defer resp.Body.Close()
@@ -241,7 +254,7 @@ func (c *CDIClient) do(ctx context.Context, req *http.Request) (*result, error) 
 	if resp.Body != nil {
 		data, err := io.ReadAll(resp.Body)
 		if err != nil {
-			slog.Error("unexpected error occured when reading response body", "error", err)
+			slog.Error("unexpected error occured when reading response body", "error", err, "requestID", ctx.Value(RequestIDKey{}).(string))
 			return &result, err
 		}
 		result.body = data
@@ -257,8 +270,8 @@ func (r *result) into(ctx context.Context, v any) error {
 			res.Detail.Message = string(r.body)
 		}
 		err := fmt.Errorf("received unsuccessful response")
-		slog.Error(err.Error(), "code", r.statusCode, "requestID", ctx.Value(requestIDKey{}).(string))
-		slog.Error("Detail:", "msg", res.Detail.Message, "requestID", ctx.Value(requestIDKey{}).(string))
+		slog.Error(err.Error(), "code", r.statusCode, "requestID", ctx.Value(RequestIDKey{}).(string))
+		slog.Error("Detail:", "msg", res.Detail.Message, "requestID", ctx.Value(RequestIDKey{}).(string))
 		return err
 	}
 	if err := json.Unmarshal(r.body, v); err != nil {

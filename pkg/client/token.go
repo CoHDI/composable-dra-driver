@@ -59,6 +59,7 @@ func (ts *cachedIMTokenSource) Token() (*oauth2.Token, error) {
 		slog.Debug("using cached token")
 		return token, nil
 	}
+	slog.Info("trying to issue new token")
 	token, err := ts.newIMTokenSource.Token()
 	if err != nil {
 		if ts.token == nil {
@@ -67,6 +68,7 @@ func (ts *cachedIMTokenSource) Token() (*oauth2.Token, error) {
 		slog.Error("unable to rotate token", "error", err)
 		return ts.token, nil
 	}
+	slog.Info("new token is successfully issued")
 	ts.token = token
 	return token, nil
 }
@@ -82,10 +84,13 @@ func (ts *idManagerTokenSource) Token() (*oauth2.Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	imToken, err := ts.cdiclient.GetIMToken(context.Background(), secret)
+	ctx := context.WithValue(context.Background(), RequestIDKey{}, RandomString(6))
+	slog.Info("trying API to get IM token", "requestID", ctx.Value(RequestIDKey{}).(string))
+	imToken, err := ts.cdiclient.GetIMToken(ctx, secret)
 	if err != nil {
 		return nil, err
 	}
+	slog.Info("IM token API completed successfully", "requestID", ctx.Value(RequestIDKey{}).(string))
 
 	token.AccessToken = imToken.AccessToken
 	token.TokenType = imToken.TokenType
@@ -108,7 +113,6 @@ func (ts *idManagerTokenSource) Token() (*oauth2.Token, error) {
 	}
 
 	token.Expiry = time.Unix(result.Expiry, 0)
-	slog.Debug("issues new token")
 
 	return &token, nil
 }
