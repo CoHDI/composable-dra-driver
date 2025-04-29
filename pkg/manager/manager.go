@@ -180,7 +180,7 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 		return err
 	}
 	// Get list of machine
-	mList, err := m.getMachineList()
+	mList, err := m.getMachineList(ctx)
 	if err != nil {
 		return err
 	}
@@ -189,9 +189,9 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 	var machines []*machine
 	for nodeName, muuid := range muuids {
 		// Get fabric id of every machine
-		fabricID, found := getFabricID(mList, muuid)
-		if !found {
-			slog.Warn("not found fabric id for the machine", "machineUUID", muuid, "nodeName", nodeName)
+		fabricID := getFabricID(mList, muuid)
+		if fabricID < 0 {
+			slog.Warn("not found fabric id for the machine, so this machine is not created", "machineUUID", muuid, "nodeName", nodeName)
 			continue
 		}
 		machine := &machine{
@@ -284,7 +284,7 @@ func (m *CDIManager) getMachineUUIDs() (map[string]string, error) {
 			slog.Error("failed to get machine uuid", "error", err)
 			return nil, err
 		} else if uuid == "" {
-			slog.Warn("missing machine uuid for providerID", "providerID", providerID)
+			slog.Warn("missing machine uuid for providerID, so this machine is not created", "providerID", providerID)
 			continue
 		}
 		uuids[nodeName] = uuid
@@ -292,11 +292,14 @@ func (m *CDIManager) getMachineUUIDs() (map[string]string, error) {
 	return uuids, nil
 }
 
-func (m *CDIManager) getMachineList() (*client.FMMachineList, error) {
-	mList, err := m.cdiClient.GetFMMachineList()
+func (m *CDIManager) getMachineList(ctx context.Context) (*client.FMMachineList, error) {
+	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
+	slog.Info("trying to get machine list from FabricManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	mList, err := m.cdiClient.GetFMMachineList(ctx)
 	if err != nil {
 		return nil, err
 	}
+	slog.Info("FM machine list API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
 	return mList, nil
 }
 
@@ -452,18 +455,13 @@ func initDriverResources(devInfos []config.DeviceInfo) map[string]*resourceslice
 	return result
 }
 
-func getFabricID(mList *client.FMMachineList, muuid string) (fabricID int, found bool) {
+func getFabricID(mList *client.FMMachineList, muuid string) (fabricID int) {
 	for _, machine := range mList.Data.Machines {
 		if machine.MachineUUID == muuid {
-			return machine.FabricID, true
-		} else {
-			return fabricID, false
+			return machine.FabricID
 		}
 	}
-	// TODO: preliminarily return random fabric number
-	// fabricID := rand.Intn(2) + 1
-	fabricID = 1
-	return fabricID, true
+	return -1
 }
 
 func generatePool(device *device, fabricID int, generation int64) resourceslice.Pool {
