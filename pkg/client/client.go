@@ -20,6 +20,7 @@ import (
 type CDIClient struct {
 	Host        string
 	TenantId    string
+	ClusterId   string
 	Client      *http.Client
 	TokenSource oauth2.TokenSource
 }
@@ -135,9 +136,10 @@ func BuildCDIClient(config *config.Config, kc *kube_utils.KubeControllers) (*CDI
 	}
 
 	client := &CDIClient{
-		Host:     config.CDIEndpoint,
-		TenantId: config.TenantID,
-		Client:   httpClient,
+		Host:      config.CDIEndpoint,
+		TenantId:  config.TenantID,
+		ClusterId: config.ClusterID,
+		Client:    httpClient,
 	}
 
 	client.TokenSource = CachedIMTokenSource(client, kc)
@@ -237,14 +239,29 @@ func (c *CDIClient) GetFMAvailableReservedResources(ctx context.Context, muuid s
 	return fmAvailables, nil
 }
 
-func (c *CDIClient) GetCMNodeGroups() (CMNodeGroups, error) {
-	return CMNodeGroups{
-		NodeGroups: []NodeGroup{
-			{
-				UUID: "1",
-			},
-		},
-	}, nil
+func (c *CDIClient) GetCMNodeGroups(ctx context.Context) (*CMNodeGroups, error) {
+	cmNodeGroups := &CMNodeGroups{}
+	r := newRequest(http.MethodGet)
+	path := "cluster_manager/cluster_autoscaler/v2/tenants/" + c.TenantId + "/clusters/" + c.ClusterId + "/nodegroups"
+	token, err := c.TokenSource.Token()
+	if err != nil {
+		return nil, err
+	}
+	req := r.setHost(c.Host).setPath(path).setHeader("X-Auth-Token", token.AccessToken)
+
+	httpReq, err := newHTTPRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, httpReq)
+	if err != nil {
+		return nil, err
+	}
+	err = resp.into(ctx, cmNodeGroups)
+	if err != nil {
+		return nil, err
+	}
+	return cmNodeGroups, nil
 }
 
 func (c *CDIClient) GetCMNodeGroupInfo(ng NodeGroup) (CMNodeGroupInfo, error) {

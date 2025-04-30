@@ -236,7 +236,7 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 
 	// Get the minimum and maximum number of devices in the node group
 	// and set them into device of every machine.
-	err = m.setMinMaxNums(machines)
+	err = m.setMinMaxNums(ctx, machines)
 	if err != nil {
 		return err
 	}
@@ -291,30 +291,8 @@ func (m *CDIManager) getMachineUUIDs() (map[string]string, error) {
 	return uuids, nil
 }
 
-func (m *CDIManager) getMachineList(ctx context.Context) (*client.FMMachineList, error) {
-	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
-	slog.Info("trying to get machine list from FabricManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
-	mList, err := m.cdiClient.GetFMMachineList(ctx)
-	if err != nil {
-		return nil, err
-	}
-	slog.Info("FM machine list API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
-	return mList, nil
-}
-
-func (m *CDIManager) getAvailableNums(ctx context.Context, muuid string, modelName string) (int, error) {
-	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
-	slog.Info("trying to get available reserved resources from FabricManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
-	availableResources, err := m.cdiClient.GetFMAvailableReservedResources(ctx, muuid, modelName)
-	if err != nil {
-		return 0, err
-	}
-	slog.Info("FM available reserved resources API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
-	return availableResources.ReservedResourceNum, nil
-}
-
-func (m *CDIManager) setMinMaxNums(machines []*machine) error {
-	nodeGroups, err := m.cdiClient.GetCMNodeGroups()
+func (m *CDIManager) setMinMaxNums(ctx context.Context, machines []*machine) error {
+	nodeGroups, err := m.getNodeGroups(ctx)
 	if err != nil {
 		return err
 	}
@@ -338,6 +316,42 @@ func (m *CDIManager) setMinMaxNums(machines []*machine) error {
 		}
 	}
 	return nil
+}
+
+func (m *CDIManager) getMachineList(ctx context.Context) (*client.FMMachineList, error) {
+	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
+	slog.Info("trying to get machine list from FabricManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	mList, err := m.cdiClient.GetFMMachineList(ctx)
+	if err != nil {
+		slog.Error("FM machine list API failed", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+		return nil, err
+	}
+	slog.Info("FM machine list API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	return mList, nil
+}
+
+func (m *CDIManager) getAvailableNums(ctx context.Context, muuid string, modelName string) (int, error) {
+	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
+	slog.Info("trying to get available reserved resources from FabricManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	availableResources, err := m.cdiClient.GetFMAvailableReservedResources(ctx, muuid, modelName)
+	if err != nil {
+		slog.Error("FM available reserved resources API failed", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+		return 0, err
+	}
+	slog.Info("FM available reserved resources API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	return availableResources.ReservedResourceNum, nil
+}
+
+func (m *CDIManager) getNodeGroups(ctx context.Context) (*client.CMNodeGroups, error) {
+	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
+	slog.Info("trying to get node groups from ClusterManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	nodeGroups, err := m.cdiClient.GetCMNodeGroups(ctx)
+	if err != nil {
+		slog.Error("CM node groups API failed", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+		return nil, err
+	}
+	slog.Info("CM node groups API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	return nodeGroups, nil
 }
 
 func (m *CDIManager) manageCDIResourceSlices(machines []*machine, controlles map[string]*resourceslice.Controller) error {

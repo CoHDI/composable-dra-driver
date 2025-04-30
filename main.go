@@ -41,9 +41,17 @@ func newApp() *cli.App {
 		},
 		&cli.StringFlag{
 			Name:        "tenant-id",
-			Usage:       "ID of tenant you belong. Must specify a form of UUID",
+			Usage:       "ID of tenant where a cluster belongs. Must specify a form of UUID",
+			Required:    true,
 			Destination: &config.TenantID,
 			EnvVars:     []string{"TENANT_ID"},
+		},
+		&cli.StringFlag{
+			Name:        "cluster-id",
+			Usage:       "ID of cluster where CDI_DRA is executed. Must specify a form of UUID",
+			Required:    true,
+			Destination: &config.ClusterID,
+			EnvVars:     []string{"CLUSTER_ID"},
 		},
 		&cli.StringFlag{
 			Name:        "cdi-endpoint",
