@@ -296,23 +296,28 @@ func (m *CDIManager) setMinMaxNums(ctx context.Context, machines []*machine) err
 	if err != nil {
 		return err
 	}
-	var ngInfos []client.CMNodeGroupInfo
+	var ngInfos []*client.CMNodeGroupInfo
 	for _, nodeGroup := range nodeGroups.NodeGroups {
-		ngInfo, err := m.cdiClient.GetCMNodeGroupInfo(nodeGroup)
+		ngInfo, err := m.getNodeGroupInfo(ctx, nodeGroup)
 		if err != nil {
 			return err
 		}
 		ngInfos = append(ngInfos, ngInfo)
 	}
 	for _, machine := range machines {
+		foundMachine := make(map[string]bool)
 		for _, ngInfo := range ngInfos {
 			if slices.Contains(ngInfo.MachineIDs, machine.machineUUID) {
+				foundMachine[machine.machineUUID] = true
 				for _, resource := range ngInfo.Resources {
 					device := machine.deviceList[resource.ModelName]
 					device.minDeviceCount = resource.MinResourceCount
 					device.maxDeviceCount = resource.MaxResourceCount
 				}
 			}
+		}
+		if !foundMachine[machine.machineUUID] {
+			slog.Info("the machine is not found in all node groups, so not set max/min device num", "nodeName", machine.nodeName, "machineUUID", machine.machineUUID)
 		}
 	}
 	return nil
@@ -352,6 +357,18 @@ func (m *CDIManager) getNodeGroups(ctx context.Context) (*client.CMNodeGroups, e
 	}
 	slog.Info("CM node groups API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
 	return nodeGroups, nil
+}
+
+func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.NodeGroup) (*client.CMNodeGroupInfo, error) {
+	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
+	slog.Info("trying to get node group info from ClusterManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	nodeGroupInfo, err := m.cdiClient.GetCMNodeGroupInfo(ctx, nodeGroup)
+	if err != nil {
+		slog.Error("CM node group info API failed", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+		return nil, err
+	}
+	slog.Info("CM node group info API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	return nodeGroupInfo, nil
 }
 
 func (m *CDIManager) manageCDIResourceSlices(machines []*machine, controlles map[string]*resourceslice.Controller) error {
