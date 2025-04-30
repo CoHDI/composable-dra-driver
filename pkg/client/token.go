@@ -63,6 +63,7 @@ func (ts *cachedIMTokenSource) Token() (*oauth2.Token, error) {
 	token, err := ts.newIMTokenSource.Token()
 	if err != nil {
 		if ts.token == nil {
+			slog.Error("failed to issue new token")
 			return nil, err
 		}
 		slog.Error("unable to rotate token", "error", err)

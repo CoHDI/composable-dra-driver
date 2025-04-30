@@ -16,6 +16,7 @@ type Config struct {
 	LogLevel     int
 	ScanInterval time.Duration
 	TenantID     string
+	ClusterID    string
 	CDIEndpoint  string
 }
 
