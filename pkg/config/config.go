@@ -9,7 +9,8 @@ import (
 )
 
 const (
-	DeviceInfoKey = "device-info"
+	DeviceInfoKey  = "device-info"
+	LabelPrefixKey = "label-prefix"
 )
 
 type Config struct {
@@ -52,5 +53,18 @@ func GetDeviceInfos(cm *corev1.ConfigMap) ([]DeviceInfo, error) {
 			return nil, err
 		}
 		return devInfo, nil
+	}
+}
+
+func GetLabelPrefix(cm *corev1.ConfigMap) (string, error) {
+	if cm.Data == nil {
+		slog.Warn("configmap data is nil")
+		return "", nil
+	}
+	if labelPrefix, found := cm.Data[LabelPrefixKey]; !found {
+		slog.Warn("configmap label-prefix is nil")
+		return "", nil
+	} else {
+		return labelPrefix, nil
 	}
 }
