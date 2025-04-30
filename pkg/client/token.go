@@ -56,10 +56,10 @@ func (ts *cachedIMTokenSource) Token() (*oauth2.Token, error) {
 	token = ts.token
 	ts.mu.Unlock()
 	if token != nil && token.Expiry.Add(-ts.marginTime).After(now) {
-		slog.Debug("using cached token")
+		slog.Debug("Token executed: using cached token")
 		return token, nil
 	}
-	slog.Info("trying to issue new token")
+	slog.Info("Token executed: trying to issue new token")
 	token, err := ts.newIMTokenSource.Token()
 	if err != nil {
 		if ts.token == nil {
@@ -89,6 +89,7 @@ func (ts *idManagerTokenSource) Token() (*oauth2.Token, error) {
 	slog.Info("trying API to get IM token", "requestID", ctx.Value(RequestIDKey{}).(string))
 	imToken, err := ts.cdiclient.GetIMToken(ctx, secret)
 	if err != nil {
+		slog.Error("IM token API failed", "requestID", ctx.Value(RequestIDKey{}).(string))
 		return nil, err
 	}
 	slog.Info("IM token API completed successfully", "requestID", ctx.Value(RequestIDKey{}).(string))

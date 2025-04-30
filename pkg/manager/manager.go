@@ -22,9 +22,8 @@ import (
 )
 
 const (
-	configMapName  = "composable-dra/composable-dra-dds"
-	labelPrefixKey = "label-prefix"
-	GpuDeviceType  = "gpu"
+	configMapName = "composable-dra/composable-dra-dds"
+	GpuDeviceType = "gpu"
 )
 
 type CDIManager struct {
@@ -112,7 +111,7 @@ func StartCDIManager(ctx context.Context, cfg *config.Config) error {
 		if err != nil {
 			return err
 		}
-		labelPrefix, err = getLabelPrefix(cm)
+		labelPrefix, err = config.GetLabelPrefix(cm)
 		if err != nil {
 			return err
 		}
@@ -453,19 +452,6 @@ func (m *CDIManager) manageCDINodeLabel(ctx context.Context, machines []*machine
 	}
 
 	return nil
-}
-
-func getLabelPrefix(cm *corev1.ConfigMap) (string, error) {
-	if cm.Data == nil {
-		slog.Warn("configmap data is nil")
-		return "", nil
-	}
-	if labelPrefix, found := cm.Data[labelPrefixKey]; !found {
-		slog.Warn("configmap label-prefix is nil")
-		return "", nil
-	} else {
-		return labelPrefix, nil
-	}
 }
 
 func initDriverResources(devInfos []config.DeviceInfo) map[string]*resourceslice.DriverResources {
