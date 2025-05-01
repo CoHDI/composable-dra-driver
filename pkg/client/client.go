@@ -167,6 +167,7 @@ func (c *CDIClient) GetIMToken(ctx context.Context, secret idManagerSecret) (*IM
 	}
 	err = resp.into(ctx, imToken)
 	if err != nil {
+		slog.Error(err.Error(), "response", string(resp.body))
 		return nil, err
 	}
 	return imToken, nil
@@ -195,6 +196,7 @@ func (c *CDIClient) GetFMMachineList(ctx context.Context) (*FMMachineList, error
 	}
 	err = resp.into(ctx, fmMachineList)
 	if err != nil {
+		slog.Error(err.Error(), "response", string(resp.body))
 		return nil, err
 	}
 	return fmMachineList, nil
@@ -234,6 +236,7 @@ func (c *CDIClient) GetFMAvailableReservedResources(ctx context.Context, muuid s
 	}
 	err = resp.into(ctx, fmAvailables)
 	if err != nil {
+		slog.Error(err.Error(), "response", string(resp.body))
 		return nil, err
 	}
 	return fmAvailables, nil
@@ -259,6 +262,7 @@ func (c *CDIClient) GetCMNodeGroups(ctx context.Context) (*CMNodeGroups, error) 
 	}
 	err = resp.into(ctx, cmNodeGroups)
 	if err != nil {
+		slog.Error(err.Error(), "response", string(resp.body))
 		return nil, err
 	}
 	return cmNodeGroups, nil
