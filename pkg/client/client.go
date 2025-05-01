@@ -104,7 +104,7 @@ type CMNodeGroupInfo struct {
 type NodeGroupResource struct {
 	ResourceName     string `json:"resource_name"`
 	ResourceType     string `json:"resource_type"`
-	ModelName        string `json:"mode_name"`
+	ModelName        string `json:"model_name"`
 	MinResourceCount int    `json:"min_resource_count"`
 	MaxResourceCount int    `json:"max_resource_count"`
 }
@@ -167,6 +167,7 @@ func (c *CDIClient) GetIMToken(ctx context.Context, secret idManagerSecret) (*IM
 	}
 	err = resp.into(ctx, imToken)
 	if err != nil {
+		slog.Error(err.Error(), "response", string(resp.body))
 		return nil, err
 	}
 	return imToken, nil
@@ -195,6 +196,7 @@ func (c *CDIClient) GetFMMachineList(ctx context.Context) (*FMMachineList, error
 	}
 	err = resp.into(ctx, fmMachineList)
 	if err != nil {
+		slog.Error(err.Error(), "response", string(resp.body))
 		return nil, err
 	}
 	return fmMachineList, nil
@@ -234,6 +236,7 @@ func (c *CDIClient) GetFMAvailableReservedResources(ctx context.Context, muuid s
 	}
 	err = resp.into(ctx, fmAvailables)
 	if err != nil {
+		slog.Error(err.Error(), "response", string(resp.body))
 		return nil, err
 	}
 	return fmAvailables, nil
@@ -247,7 +250,7 @@ func (c *CDIClient) GetCMNodeGroups(ctx context.Context) (*CMNodeGroups, error) 
 	if err != nil {
 		return nil, err
 	}
-	req := r.setHost(c.Host).setPath(path).setHeader("X-Auth-Token", token.AccessToken)
+	req := r.setHost(c.Host).setPath(path).setHeader("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
 
 	httpReq, err := newHTTPRequest(req)
 	if err != nil {
@@ -259,6 +262,7 @@ func (c *CDIClient) GetCMNodeGroups(ctx context.Context) (*CMNodeGroups, error) 
 	}
 	err = resp.into(ctx, cmNodeGroups)
 	if err != nil {
+		slog.Error(err.Error(), "response", string(resp.body))
 		return nil, err
 	}
 	return cmNodeGroups, nil
@@ -272,7 +276,7 @@ func (c *CDIClient) GetCMNodeGroupInfo(ctx context.Context, ng NodeGroup) (*CMNo
 	if err != nil {
 		return nil, err
 	}
-	req := r.setHost(c.Host).setPath(path).setHeader("X-Auth-Token", token.AccessToken)
+	req := r.setHost(c.Host).setPath(path).setHeader("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
 
 	httpReq, err := newHTTPRequest(req)
 	if err != nil {

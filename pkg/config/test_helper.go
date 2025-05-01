@@ -77,7 +77,12 @@ func CreateSecret(certPem string) *corev1.Secret {
 			Namespace: "composable-dra",
 		},
 		Data: map[string][]byte{
-			"certificate": []byte(certPem),
+			"username":      []byte("user"),
+			"password":      []byte("pass"),
+			"realm":         []byte("CDI_DRA_Test"),
+			"client_id":     []byte("0001"),
+			"client_secret": []byte("secret"),
+			"certificate":   []byte(certPem),
 		},
 	}
 	return secret

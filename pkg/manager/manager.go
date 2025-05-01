@@ -287,6 +287,9 @@ func (m *CDIManager) getMachineUUIDs() (map[string]string, error) {
 		}
 		uuids[nodeName] = uuid
 	}
+	for uuid, nodeName := range uuids {
+		slog.Debug("got machine uuids", "nodeName", nodeName, "machineUUID", uuid)
+	}
 	return uuids, nil
 }
 
@@ -325,18 +328,25 @@ func (m *CDIManager) setMinMaxNums(ctx context.Context, machines []*machine) err
 func (m *CDIManager) getMachineList(ctx context.Context) (*client.FMMachineList, error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
 	slog.Info("trying to get machine list from FabricManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+
+	// Publish API to get a machine list from FabricManager
 	mList, err := m.cdiClient.GetFMMachineList(ctx)
 	if err != nil {
 		slog.Error("FM machine list API failed", "requestID", ctx.Value(client.RequestIDKey{}).(string))
 		return nil, err
 	}
 	slog.Info("FM machine list API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	for _, machine := range mList.Data.Machines {
+		slog.Debug("got machine list", "machineUUID", machine.MachineUUID, "fabricID", machine.FabricID)
+	}
 	return mList, nil
 }
 
 func (m *CDIManager) getAvailableNums(ctx context.Context, muuid string, modelName string) (int, error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
 	slog.Info("trying to get available reserved resources from FabricManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+
+	// Publish API to get available reserved resources from FabricManager
 	availableResources, err := m.cdiClient.GetFMAvailableReservedResources(ctx, muuid, modelName)
 	if err != nil {
 		slog.Error("FM available reserved resources API failed", "requestID", ctx.Value(client.RequestIDKey{}).(string))
@@ -349,24 +359,38 @@ func (m *CDIManager) getAvailableNums(ctx context.Context, muuid string, modelNa
 func (m *CDIManager) getNodeGroups(ctx context.Context) (*client.CMNodeGroups, error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
 	slog.Info("trying to get node groups from ClusterManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+
+	// Publish API to get node groups from ClusterManager
 	nodeGroups, err := m.cdiClient.GetCMNodeGroups(ctx)
 	if err != nil {
 		slog.Error("CM node groups API failed", "requestID", ctx.Value(client.RequestIDKey{}).(string))
 		return nil, err
 	}
 	slog.Info("CM node groups API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	for _, nodeGroup := range nodeGroups.NodeGroups {
+		slog.Debug("got node groups", "NodeGroupName", nodeGroup.Name, "UUID", nodeGroup.UUID)
+	}
 	return nodeGroups, nil
 }
 
 func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.NodeGroup) (*client.CMNodeGroupInfo, error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
 	slog.Info("trying to get node group info from ClusterManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+
+	// Publish API to get a node group info from ClusterManager
 	nodeGroupInfo, err := m.cdiClient.GetCMNodeGroupInfo(ctx, nodeGroup)
 	if err != nil {
 		slog.Error("CM node group info API failed", "requestID", ctx.Value(client.RequestIDKey{}).(string))
 		return nil, err
 	}
 	slog.Info("CM node group info API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	for _, machineID := range nodeGroupInfo.MachineIDs {
+		slog.Debug("got node group info, the machine belongs in the node group", "machineUUID", machineID, "NodeGroupName", nodeGroupInfo.Name)
+	}
+	slog.Debug("got node group info, resources length", "resourceLen", len(nodeGroupInfo.Resources), "NodeGroupName", nodeGroupInfo.Name)
+	for _, resource := range nodeGroupInfo.Resources {
+		slog.Debug("got node group info, resource min/max", "modelName", resource.ModelName, "min", resource.MinResourceCount, "max", resource.MaxResourceCount)
+	}
 	return nodeGroupInfo, nil
 }
 
@@ -421,7 +445,6 @@ func (m *CDIManager) updatePool(driverName string, poolName string, device *devi
 }
 
 func (m *CDIManager) manageCDINodeLabel(ctx context.Context, machines []*machine) error {
-	slog.Info("set labels to node")
 	for _, machine := range machines {
 		node, err := m.kubecontrollers.GetNode(machine.nodeName)
 		if err != nil {

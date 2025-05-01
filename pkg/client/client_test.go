@@ -10,6 +10,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -116,23 +118,61 @@ func createTestServerCertificate(caCertData certData) (certPEMBlock, keyPEMBlock
 	return certPEMBlock, keyPEMBlock, nil
 }
 
+var testAccessToken string = "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":775710000}`))
+
+var testIMToken IMToken = IMToken{
+	AccessToken:      testAccessToken,
+	ExpiresIn:        1,
+	RefreshExpiresIn: 2,
+	RefreshToken:     "token2",
+	TokenType:        "Bearer",
+	IDToken:          "token3",
+	NotBeforePolicy:  3,
+	SessionState:     "efffca5t4",
+	Scope:            "test profile",
+}
+
+var testMachineList FMMachineList = FMMachineList{
+	Data: Machines{
+		Machines: []Machine{
+			{
+				FabricID: 1,
+			},
+		},
+	},
+}
+
 func handleRequests(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "POST" {
 		if r.URL.Path == "/id_manager/realms/CDI_DRA_Test/protocol/openid-connect/token" {
 			body, _ := io.ReadAll(r.Body)
 			targetString := "client_id=0001&client_secret=secret&username=user&password=pass&scope=openid&response=id_token token&grant_type=password"
 			if string(body) == targetString {
-				response := `{"access_token":"token1","expires_in":1,"refresh_expires_in":2,"refresh_token":"token2","token_type":"Bearer","id_token":"token3","not-before-policy":3,"session_state":"efffca5t4","scope":"test profile"}`
+				response, _ := json.Marshal(testIMToken)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(response))
 			}
 		}
 	}
+	if r.Method == "GET" {
+		if r.URL.Path == "/fabric_manager/api/v1/machines" {
+			if r.Header.Get("Authorization") == fmt.Sprintf("Bearer %s", testAccessToken) {
+				for key, value := range r.URL.Query() {
+					if key == "tenant_uuid" && value[0] == "0001" {
+						response, _ := json.Marshal(testMachineList)
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(http.StatusOK)
+						w.Write(response)
+					}
+				}
+			}
+		}
+	}
 
 }
 
-func TestGetIMToken(t *testing.T) {
+func createTLSServer(t testing.TB) (*httptest.Server, string) {
 	caCertData, err := createTestCACertificate()
 	if err != nil {
 		t.Fatalf("failed to create CA certficate")
@@ -149,12 +189,17 @@ func TestGetIMToken(t *testing.T) {
 		t.Fatalf("failed to load server key pair: %v", err)
 	}
 	server.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
+	return server, caCertData.certPem
+}
+
+func TestGetIMToken(t *testing.T) {
+	server, certPem := createTLSServer(t)
 	server.StartTLS()
+	defer server.Close()
 	parsedURL, err := url.Parse(server.URL)
 	if err != nil {
 		t.Fatalf("failed to parse URL: %v", err)
 	}
-	defer server.Close()
 
 	testCases := []struct {
 		name          string
@@ -166,9 +211,9 @@ func TestGetIMToken(t *testing.T) {
 		{
 			name:        "When get IM token with a correct password",
 			password:    "pass",
-			certificate: caCertData.certPem,
+			certificate: certPem,
 			expectedToken: &IMToken{
-				AccessToken:      "token1",
+				AccessToken:      "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":775710000}`)),
 				ExpiresIn:        1,
 				RefreshExpiresIn: 2,
 				RefreshToken:     "token2",
@@ -215,6 +260,68 @@ func TestGetIMToken(t *testing.T) {
 				}
 				if !reflect.DeepEqual(tc.expectedToken, imToken) {
 					t.Errorf("Expected token: %v, got %v", tc.expectedToken, imToken)
+				}
+			}
+		})
+	}
+}
+
+func TestGetFMMachineList(t *testing.T) {
+	server, certPem := createTLSServer(t)
+	server.StartTLS()
+	defer server.Close()
+	parsedURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("failed to parse URL: %v", err)
+	}
+
+	testCases := []struct {
+		name                string
+		tenantId            string
+		expectedErr         bool
+		expectedMachineList *FMMachineList
+	}{
+		{
+			name:        "When get FM machine list",
+			tenantId:    "0001",
+			expectedErr: false,
+			expectedMachineList: &FMMachineList{
+				Data: Machines{
+					Machines: []Machine{
+						{
+							FabricID: 1,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			secret := config.CreateSecret(certPem)
+			testConfig := ku.TestConfig{
+				Secret: secret,
+			}
+			controllers, stop := ku.MustCreateKubeControllers(t, &testConfig)
+			defer stop()
+			config := &config.Config{
+				CDIEndpoint: parsedURL.Host,
+				TenantID:    tc.tenantId,
+			}
+			client, err := BuildCDIClient(config, controllers)
+			if err != nil {
+				t.Fatalf("failed to build cdi client: %v", err)
+			}
+			mList, err := client.GetFMMachineList(context.Background())
+			if tc.expectedErr {
+
+			} else if !tc.expectedErr {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if !reflect.DeepEqual(tc.expectedMachineList, mList) {
+					t.Errorf("expected machine list: %#v, got %#v", tc.expectedMachineList, mList)
 				}
 			}
 		})
