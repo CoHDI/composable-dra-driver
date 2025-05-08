@@ -60,6 +60,13 @@ func newApp() *cli.App {
 			Destination: &config.CDIEndpoint,
 			EnvVars:     []string{"CDI_ENDPOINT"},
 		},
+		&cli.BoolFlag{
+			Name:        "use-capi-bmh",
+			Usage:       "Whether to use cluster-api and BareMetalHost or not to get machine uuid",
+			Destination: &config.UseCapiBmh,
+			EnvVars:     []string{"USE_CAPI_BMH"},
+			Value:       false,
+		},
 	}
 
 	app := &cli.App{
