@@ -19,6 +19,7 @@ type Config struct {
 	TenantID     string
 	ClusterID    string
 	CDIEndpoint  string
+	UseCapiBmh   bool
 }
 
 type DeviceInfo struct {

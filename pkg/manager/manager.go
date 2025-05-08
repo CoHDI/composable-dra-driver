@@ -35,6 +35,7 @@ type CDIManager struct {
 	labelPrefix          string
 	cdiClient            *client.CDIClient
 	kubecontrollers      *kube_utils.KubeControllers
+	useCapiBmh           bool
 }
 
 type machine struct {
@@ -129,6 +130,7 @@ func StartCDIManager(ctx context.Context, cfg *config.Config) error {
 		labelPrefix:          labelPrefix,
 		cdiClient:            cdiclient,
 		kubecontrollers:      kc,
+		useCapiBmh:           cfg.UseCapiBmh,
 	}
 
 	controllers, err := m.startResourceSliceController(ctx)
@@ -176,6 +178,9 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 	if err != nil {
 		slog.Error("failed to get machine UUID")
 		return err
+	}
+	if len(muuids) == 0 {
+		return fmt.Errorf("not any machine uuid is found")
 	}
 	// Get list of machine
 	mList, err := m.getMachineList(ctx)
@@ -277,17 +282,24 @@ func (m *CDIManager) getMachineUUIDs() (map[string]string, error) {
 			slog.Warn("missing node for providerID", "providerID", providerID)
 			continue
 		}
-		uuid, err := m.kubecontrollers.FindMachineUUIDByProviderID(providerID)
-		if err != nil {
-			slog.Error("failed to get machine uuid", "error", err)
-			return nil, err
-		} else if uuid == "" {
-			slog.Warn("missing machine uuid for providerID, so this machine is not created", "providerID", providerID)
-			continue
+		var uuid string
+		if !m.useCapiBmh {
+			// If not using cluster-api and BareMetalHost in a cluster, provider id itself is machine uuid
+			uuid = string(providerID)
+		} else if m.useCapiBmh {
+			// If using cluster-api and BareMetalHost, machine uuid must be derived from annotation of BareMetalHost
+			uuid, err = m.kubecontrollers.FindMachineUUIDByProviderID(providerID)
+			if err != nil {
+				slog.Error("failed to get machine uuid", "error", err)
+				return nil, err
+			} else if uuid == "" {
+				slog.Warn("missing machine uuid for providerID, so this machine is not created", "providerID", providerID)
+				continue
+			}
 		}
 		uuids[nodeName] = uuid
 	}
-	for uuid, nodeName := range uuids {
+	for nodeName, uuid := range uuids {
 		slog.Debug("got machine uuids", "nodeName", nodeName, "machineUUID", uuid)
 	}
 	return uuids, nil
