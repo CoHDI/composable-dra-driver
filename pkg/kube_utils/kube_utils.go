@@ -149,6 +149,7 @@ func groupVersionHasResource(client discovery.DiscoveryInterface, groupVersion, 
 			return true, nil
 		}
 	}
+	slog.Warn("Resource not available", "resourceName", resourceName)
 	return false, nil
 }
 
