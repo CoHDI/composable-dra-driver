@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	fakekube "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/dynamic-resource-allocation/resourceslice"
 	"k8s.io/utils/ptr"
@@ -200,6 +202,61 @@ func TestCDIManagerStartResourceSliceController(t *testing.T) {
 
 			if !rsFound || !deviceFound {
 				t.Error("not create expected ResourceSlice")
+			}
+		})
+	}
+}
+
+func TestCDIManagerGetMachineUUID(t *testing.T) {
+	testCases := []struct {
+		name                string
+		nodeCount           int
+		nodeName            string
+		useCapiBmh          bool
+		expectedErr         bool
+		expectedMachineUUID string
+	}{
+		{
+			name:                "When correct machine uuid is got if useCapiBmh is true",
+			nodeCount:           1,
+			nodeName:            "test-node-0",
+			useCapiBmh:          true,
+			expectedErr:         false,
+			expectedMachineUUID: "test-node-0",
+		},
+		{
+			name:                "When correct machine uuid is got if useCapiBmh is false",
+			nodeCount:           2,
+			nodeName:            "test-node-1",
+			useCapiBmh:          false,
+			expectedErr:         false,
+			expectedMachineUUID: "test-providerid-1",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := createTestManager(tc.useCapiBmh)
+			testConfig := &ku.TestConfig{
+				Nodes:    make([]*v1.Node, tc.nodeCount),
+				Machines: make([]*unstructured.Unstructured, tc.nodeCount),
+				BMHs:     make([]*unstructured.Unstructured, tc.nodeCount),
+			}
+			for i := 0; i < tc.nodeCount; i++ {
+				testConfig.Nodes[i], testConfig.BMHs[i], testConfig.Machines[i] = ku.CreateNodeBMHMachines(i, "test-namespace", tc.useCapiBmh)
+			}
+			var stop ku.TestControllerShutdownFunc
+			m.kubecontrollers, stop = ku.MustCreateKubeControllers(t, testConfig)
+			defer stop()
+			muuids, err := m.getMachineUUIDs()
+			if tc.expectedErr {
+
+			} else if !tc.expectedErr {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if muuids[tc.nodeName] != tc.expectedMachineUUID {
+					t.Errorf("unexpected machine uuid got: expected %s, but got %s", tc.expectedMachineUUID, muuids[tc.nodeName])
+				}
 			}
 		})
 	}

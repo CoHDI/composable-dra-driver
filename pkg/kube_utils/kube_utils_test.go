@@ -2,6 +2,7 @@ package kube_utils
 
 import (
 	"cdi_dra/pkg/config"
+	"slices"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -87,7 +88,7 @@ func TestIsDRAEnabled(t *testing.T) {
 
 }
 
-func TestKubeControllerGetConfigMap(t *testing.T) {
+func TestKubeControllersGetConfigMap(t *testing.T) {
 	type testConfigMap struct {
 		name      string
 		namespace string
@@ -152,7 +153,118 @@ func TestKubeControllerGetConfigMap(t *testing.T) {
 	}
 }
 
-func TestKubeControllerFindMachineUUIDByProviderID(t *testing.T) {
+func TestKubeControllersListProviderIDs(t *testing.T) {
+	testCases := []struct {
+		name                     string
+		nodeCount                int
+		nodeIndex                int
+		useCapiBmh               bool
+		expectedErr              bool
+		expectedProviderID       normalizedProviderID
+		expectedProviderIDLength int
+	}{
+		{
+			name:                     "When provider ID is correctly listed if useCapiBmh is true",
+			nodeCount:                1,
+			useCapiBmh:               true,
+			expectedErr:              false,
+			expectedProviderID:       "test-providerid-0",
+			expectedProviderIDLength: 1,
+		},
+		{
+			name:                     "When provider ID is correctly listed if useCapiBmh is false",
+			nodeCount:                2,
+			useCapiBmh:               false,
+			expectedErr:              false,
+			expectedProviderID:       "test-providerid-1",
+			expectedProviderIDLength: 2,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			testConfig := &TestConfig{
+				Nodes:    make([]*corev1.Node, tc.nodeCount),
+				BMHs:     make([]*unstructured.Unstructured, tc.nodeCount),
+				Machines: make([]*unstructured.Unstructured, tc.nodeCount),
+			}
+			for i := 0; i < tc.nodeCount; i++ {
+				testConfig.Nodes[i], testConfig.BMHs[i], testConfig.Machines[i] = CreateNodeBMHMachines(i, "test-namespace", tc.useCapiBmh)
+			}
+			controllers, stop := MustCreateKubeControllers(t, testConfig)
+			defer stop()
+
+			providerIDs, err := controllers.ListProviderIDs()
+			if tc.expectedErr {
+
+			} else if !tc.expectedErr {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if len(providerIDs) != tc.expectedProviderIDLength {
+					t.Errorf("unexpected provider ID length: expected %d, but got %d", tc.expectedProviderIDLength, len(providerIDs))
+				}
+				if !slices.Contains(providerIDs, tc.expectedProviderID) {
+					t.Errorf("expected provider ID not got: expected %s", tc.expectedProviderID)
+				}
+			}
+		})
+	}
+}
+
+func TestKubeControllersFindNodeNameByProviderID(t *testing.T) {
+	testCases := []struct {
+		name             string
+		nodeCount        int
+		useCapiBmh       bool
+		providerID       string
+		expectedErr      bool
+		expectedNodeName string
+	}{
+		{
+			name:             "When correctly providerID is provided if useCapiBmh is true",
+			nodeCount:        1,
+			useCapiBmh:       true,
+			providerID:       "test-providerid-0",
+			expectedErr:      false,
+			expectedNodeName: "test-node-0",
+		},
+		{
+			name:             "When correctly providerID is provided if useCapiBmh is false",
+			nodeCount:        2,
+			useCapiBmh:       false,
+			providerID:       "test-providerid-1",
+			expectedErr:      false,
+			expectedNodeName: "test-node-1",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			testConfig := &TestConfig{
+				Nodes:    make([]*corev1.Node, tc.nodeCount),
+				BMHs:     make([]*unstructured.Unstructured, tc.nodeCount),
+				Machines: make([]*unstructured.Unstructured, tc.nodeCount),
+			}
+			for i := 0; i < tc.nodeCount; i++ {
+				testConfig.Nodes[i], testConfig.BMHs[i], testConfig.Machines[i] = CreateNodeBMHMachines(i, "test-namespace", tc.useCapiBmh)
+			}
+			controllers, stop := MustCreateKubeControllers(t, testConfig)
+			defer stop()
+			nodeName, err := controllers.FindNodeNameByProviderID(normalizedProviderID(tc.providerID))
+			if tc.expectedErr {
+
+			} else if !tc.expectedErr {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if nodeName != tc.expectedNodeName {
+					t.Errorf("unexpected node name got: expected %s, but got %s", tc.expectedNodeName, nodeName)
+				}
+			}
+		})
+	}
+}
+
+func TestKubeControllersFindMachineUUIDByProviderID(t *testing.T) {
 	testCases := []struct {
 		name                string
 		nodeCount           int
@@ -171,14 +283,13 @@ func TestKubeControllerFindMachineUUIDByProviderID(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			nodeCount := 1
 			testConfig := &TestConfig{
-				Nodes:    make([]*corev1.Node, nodeCount),
-				BMHs:     make([]*unstructured.Unstructured, nodeCount),
-				Machines: make([]*unstructured.Unstructured, nodeCount),
+				Nodes:    make([]*corev1.Node, tc.nodeCount),
+				BMHs:     make([]*unstructured.Unstructured, tc.nodeCount),
+				Machines: make([]*unstructured.Unstructured, tc.nodeCount),
 			}
 			useCapiBmh := true
-			for i := 0; i < nodeCount; i++ {
+			for i := 0; i < tc.nodeCount; i++ {
 				testConfig.Nodes[i], testConfig.BMHs[i], testConfig.Machines[i] = CreateNodeBMHMachines(i, "test-namespace", useCapiBmh)
 			}
 			controllers, stop := MustCreateKubeControllers(t, testConfig)
