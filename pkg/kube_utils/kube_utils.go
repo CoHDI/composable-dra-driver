@@ -322,10 +322,11 @@ func (kc *KubeControllers) FindMachineUUIDByProviderID(providerID normalizedProv
 
 	objs, err := kc.bmhInformer.Informer().GetIndexer().ByIndex(bmhProviderIDIndex, string(providerID))
 	if err != nil {
-		return "", nil
+		return "", err
 	}
 	switch n := len(objs); {
 	case n == 0:
+		slog.Warn("not found BareMetalHost for the providerID", "providerID", providerID)
 		return "", nil
 	case n > 1:
 		return "", fmt.Errorf("internal error; expected len==1, got %v", n)

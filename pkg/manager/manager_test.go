@@ -2,6 +2,7 @@ package manager
 
 import (
 	"cdi_dra/pkg/config"
+	ku "cdi_dra/pkg/kube_utils"
 	"context"
 	"reflect"
 	"testing"
@@ -81,14 +82,16 @@ func createTestDriverResources() map[string]*resourceslice.DriverResources {
 	return ndr
 }
 
-func createTestManager() *CDIManager {
+func createTestManager(useCapiBmh bool) *CDIManager {
 	//kubeObjects := make([]runtime.Object, 0)
 	coreClient := fakekube.NewSimpleClientset()
 	ndr := createTestDriverResources()
 
 	return &CDIManager{
 		coreClient:           coreClient,
+		discoveryClient:      ku.CreateDiscoveryClient(true),
 		namedDriverResources: ndr,
+		useCapiBmh:           useCapiBmh,
 	}
 
 }
@@ -129,8 +132,8 @@ func TestInitDrvierResources(t *testing.T) {
 	}
 }
 
-func TestStartResourceSliceController(t *testing.T) {
-	m := createTestManager()
+func TestCDIManagerStartResourceSliceController(t *testing.T) {
+	m := createTestManager(true)
 
 	testCases := []struct {
 		name                string
