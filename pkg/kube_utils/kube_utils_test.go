@@ -4,30 +4,9 @@ import (
 	"cdi_dra/pkg/config"
 	"testing"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/discovery"
-	fakekube "k8s.io/client-go/kubernetes/fake"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
-
-func createDiscoveryClient(draEnabled bool) discovery.DiscoveryInterface {
-	fakeClient := fakekube.NewSimpleClientset()
-	if draEnabled {
-		resourceAPI := &metav1.APIResourceList{
-			TypeMeta: metav1.TypeMeta{
-				Kind:       ResourceSliceResourceName,
-				APIVersion: DRAAPIVersion,
-			},
-			GroupVersion: DRAAPIGroup + "/" + DRAAPIVersion,
-			APIResources: []metav1.APIResource{
-				{
-					Name: ResourceSliceResourceName,
-				},
-			},
-		}
-		fakeClient.Fake.Resources = append(fakeClient.Fake.Resources, resourceAPI)
-	}
-	return fakeClient.Discovery()
-}
 
 func TestGroupVersionHasResource(t *testing.T) {
 	testCases := []struct {
@@ -54,7 +33,7 @@ func TestGroupVersionHasResource(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			discoveryClient := createDiscoveryClient(tc.DRAEnable)
+			discoveryClient := CreateDiscoveryClient(tc.DRAEnable)
 			available, err := groupVersionHasResource(discoveryClient, tc.groupVersion, tc.resourceName)
 			if tc.expectedErr {
 				if err == nil {
@@ -92,7 +71,7 @@ func TestIsDRAEnabled(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			discoveryClient := createDiscoveryClient(tc.DRAEnable)
+			discoveryClient := CreateDiscoveryClient(tc.DRAEnable)
 			enabled := IsDRAEnabled(discoveryClient)
 			if tc.expectedErr {
 				if enabled {
@@ -167,6 +146,53 @@ func TestKubeControllerGetConfigMap(t *testing.T) {
 			if cm != nil {
 				if cm.Name != tc.expectedConfigMap.name {
 					t.Errorf("expected %q, got %q", tc.expectedConfigMap.name, cm.Name)
+				}
+			}
+		})
+	}
+}
+
+func TestKubeControllerFindMachineUUIDByProviderID(t *testing.T) {
+	testCases := []struct {
+		name                string
+		nodeCount           int
+		providerID          string
+		expectedErr         bool
+		expectedMachineUUID string
+	}{
+		{
+			name:                "When correctly provider ID is provided",
+			nodeCount:           1,
+			providerID:          "test-providerid-0",
+			expectedErr:         false,
+			expectedMachineUUID: "test-node-0",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			nodeCount := 1
+			testConfig := &TestConfig{
+				Nodes:    make([]*corev1.Node, nodeCount),
+				BMHs:     make([]*unstructured.Unstructured, nodeCount),
+				Machines: make([]*unstructured.Unstructured, nodeCount),
+			}
+			useCapiBmh := true
+			for i := 0; i < nodeCount; i++ {
+				testConfig.Nodes[i], testConfig.BMHs[i], testConfig.Machines[i] = CreateNodeBMHMachines(i, "test-namespace", useCapiBmh)
+			}
+			controllers, stop := MustCreateKubeControllers(t, testConfig)
+			defer stop()
+
+			muuid, err := controllers.FindMachineUUIDByProviderID(normalizedProviderString(tc.providerID))
+			if tc.expectedErr {
+
+			} else if !tc.expectedErr {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if muuid != tc.expectedMachineUUID {
+					t.Errorf("unexpected machine uuid, expected: %s, but got: %s", tc.expectedMachineUUID, muuid)
 				}
 			}
 		})
