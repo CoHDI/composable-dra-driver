@@ -34,12 +34,18 @@ func MustCreateKubeControllers(t testing.TB, testConfig *TestConfig) (*KubeContr
 	}
 	for i := range testConfig.Nodes {
 		objects = append(objects, testConfig.Nodes[i])
-
 	}
 
 	machineObjects := make([]runtime.Object, 0)
-	for i := range testConfig.BMHs {
-		machineObjects = append(machineObjects, testConfig.BMHs[i])
+	for _, machine := range testConfig.Machines {
+		if machine != nil {
+			machineObjects = append(machineObjects, machine)
+		}
+	}
+	for _, bmh := range testConfig.BMHs {
+		if bmh != nil {
+			machineObjects = append(machineObjects, bmh)
+		}
 	}
 	kubeclient := fakekube.NewSimpleClientset(objects...)
 	dynamicclient := fakedynamic.NewSimpleDynamicClientWithCustomListKinds(
