@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	kubeinformers "k8s.io/client-go/informers"
+	informerscorev1 "k8s.io/client-go/informers/core/v1"
 	kube_client "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -45,7 +46,7 @@ type KubeClientSets struct {
 type KubeControllers struct {
 	coreInformerFactory    kubeinformers.SharedInformerFactory
 	machineInformerFactory dynamicinformer.DynamicSharedInformerFactory
-	nodeInformer           cache.SharedIndexInformer
+	nodeInformer           informerscorev1.NodeInformer
 	configMapInformer      cache.SharedIndexInformer
 	secretInformer         cache.SharedIndexInformer
 	machineInformer        kubeinformers.GenericInformer
@@ -77,8 +78,8 @@ func CreateKubeControllers(coreClient kube_client.Interface, machineClient dynam
 
 	configMapInformer := coreInformerFactory.Core().V1().ConfigMaps().Informer()
 	secretInformer := coreInformerFactory.Core().V1().Secrets().Informer()
-	nodeInformer := coreInformerFactory.Core().V1().Nodes().Informer()
-	if err := nodeInformer.GetIndexer().AddIndexers(cache.Indexers{
+	nodeInformer := coreInformerFactory.Core().V1().Nodes()
+	if err := nodeInformer.Informer().GetIndexer().AddIndexers(cache.Indexers{
 		nodeProviderIDIndex: indexNodeByProviderID,
 	}); err != nil {
 		slog.Error("Cannot add node indexer", "error", err)
@@ -197,7 +198,7 @@ func (kc *KubeControllers) Run() error {
 	kc.machineInformerFactory.Start(kc.stopChannel)
 
 	syncFuncs := []cache.InformerSynced{
-		kc.nodeInformer.HasSynced,
+		kc.nodeInformer.Informer().HasSynced,
 		kc.configMapInformer.HasSynced,
 		kc.secretInformer.HasSynced,
 	}
@@ -215,7 +216,7 @@ func (kc *KubeControllers) Run() error {
 }
 
 func (kc *KubeControllers) GetNode(nodeName string) (*corev1.Node, error) {
-	obj, exists, err := kc.nodeInformer.GetIndexer().GetByKey(nodeName)
+	obj, exists, err := kc.nodeInformer.Informer().GetIndexer().GetByKey(nodeName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node: %w", err)
 	}
@@ -265,42 +266,25 @@ func (kc *KubeControllers) GetSecret(key string) (*corev1.Secret, error) {
 func (kc *KubeControllers) ListProviderIDs() ([]normalizedProviderID, error) {
 	var providerIDs []normalizedProviderID
 
-	objs, err := kc.machineInformer.Lister().List(labels.Everything())
+	nodes, err := kc.nodeInformer.Lister().List(labels.Everything())
 	if err != nil {
-		slog.Error("failed to list machine", "error", err)
+		slog.Error("failed to list nodes", "error", err)
 		return nil, err
 	}
-	machines := make([]*unstructured.Unstructured, 0, len(objs))
-	for _, x := range objs {
-		u, ok := x.(*unstructured.Unstructured)
-		if !ok {
-			slog.Error("unexpected unstructured resource from lister", "type", x)
-			return nil, fmt.Errorf("expected unstructured resource from lister: %T", x)
+	for _, node := range nodes {
+		providerID := node.Spec.ProviderID
+		if providerID != "" {
+			providerIDs = append(providerIDs, normalizedProviderString(providerID))
+		} else {
+			slog.Warn("node has no providerID", "name", node.GetName())
 		}
-		machines = append(machines, u.DeepCopy())
-	}
-
-	for _, machine := range machines {
-		providerID, found, err := unstructured.NestedString(machine.UnstructuredContent(), "spec", "providerID")
-		if err != nil {
-			slog.Error("failed to get provider id from Unstructured", "error", err)
-			return nil, err
-		}
-
-		if found {
-			if providerID != "" {
-				providerIDs = append(providerIDs, normalizedProviderString(providerID))
-				continue
-			}
-		}
-		slog.Warn("machine has no providerID", "name", machine.GetName())
 	}
 	slog.Info("the number of providerIDs", "providerIDNum", len(providerIDs))
 	return providerIDs, nil
 }
 
 func (kc *KubeControllers) FindNodeNameByProviderID(providerID normalizedProviderID) (string, error) {
-	objs, err := kc.nodeInformer.GetIndexer().ByIndex(nodeProviderIDIndex, string(providerID))
+	objs, err := kc.nodeInformer.Informer().GetIndexer().ByIndex(nodeProviderIDIndex, string(providerID))
 	if err != nil {
 		return "", nil
 	}
