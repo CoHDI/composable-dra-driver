@@ -23,6 +23,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -136,7 +138,7 @@ var testMachineList FMMachineList = FMMachineList{
 	Data: Machines{
 		Machines: []Machine{
 			{
-				FabricID: 1,
+				FabricID: ptr.To(1),
 			},
 		},
 	},
@@ -289,7 +291,7 @@ func TestGetFMMachineList(t *testing.T) {
 				Data: Machines{
 					Machines: []Machine{
 						{
-							FabricID: 1,
+							FabricID: ptr.To(1),
 						},
 					},
 				},

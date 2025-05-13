@@ -46,8 +46,8 @@ type Machines struct {
 }
 
 type Machine struct {
-	FabricUUID   string            `json:"fabric_uuid"`
-	FabricID     int               `json:"fabric_id"`
+	FabricUUID   *string           `json:"fabric_uuid"`
+	FabricID     *int              `json:"fabric_id"`
 	MachineUUID  string            `json:"mach_uuid"`
 	MachineID    int               `json:"mach_id"`
 	MachineName  string            `json:"mach_name"`
@@ -105,8 +105,8 @@ type NodeGroupResource struct {
 	ResourceName     string `json:"resource_name"`
 	ResourceType     string `json:"resource_type"`
 	ModelName        string `json:"model_name"`
-	MinResourceCount int    `json:"min_resource_count"`
-	MaxResourceCount int    `json:"max_resource_count"`
+	MinResourceCount *int   `json:"min_resource_count"`
+	MaxResourceCount *int   `json:"max_resource_count"`
 }
 
 type RequestIDKey struct{}

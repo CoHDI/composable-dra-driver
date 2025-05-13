@@ -41,7 +41,7 @@ type CDIManager struct {
 type machine struct {
 	nodeName    string
 	machineUUID string
-	fabricID    int
+	fabricID    *int
 	deviceList  deviceList
 }
 
@@ -52,8 +52,8 @@ type device struct {
 	driverName           string
 	draAttributes        map[string]string
 	availableDeviceCount int
-	minDeviceCount       int
-	maxDeviceCount       int
+	minDeviceCount       *int
+	maxDeviceCount       *int
 }
 
 func StartCDIManager(ctx context.Context, cfg *config.Config) error {
@@ -193,8 +193,8 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 	for nodeName, muuid := range muuids {
 		// Get fabric id of every machine
 		fabricID := getFabricID(mList, muuid)
-		if fabricID < 0 {
-			slog.Warn("not found fabric id for the machine, so this machine is not created", "machineUUID", muuid, "nodeName", nodeName)
+		if fabricID == nil {
+			slog.Warn("not found fabric id for the machine", "machineUUID", muuid, "nodeName", nodeName)
 			continue
 		}
 		machine := &machine{
@@ -205,11 +205,15 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 		machines = append(machines, machine)
 	}
 
+	if len(machines) == 0 {
+		return fmt.Errorf("not any machine is found to process")
+	}
+
 	// Get the number of free devices in a fabric pool
 	// It is executed per a fabric for reducing API calls
 	fabricFound := make(map[int]deviceList)
 	for _, machine := range machines {
-		if _, exists := fabricFound[machine.fabricID]; exists {
+		if _, exists := fabricFound[*machine.fabricID]; exists {
 			continue
 		}
 		var deviceList deviceList = make(map[string]*device)
@@ -225,13 +229,13 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 				availableDeviceCount: availableNum,
 			}
 		}
-		fabricFound[machine.fabricID] = deviceList
+		fabricFound[*machine.fabricID] = deviceList
 	}
 
 	// Copy device list per a fabric into all machines
 	for fabricID, deviceList := range fabricFound {
 		for _, machine := range machines {
-			if machine.fabricID != fabricID {
+			if *machine.fabricID != fabricID {
 				continue
 			}
 			machine.deviceList = deviceList.DeepCopy()
@@ -246,9 +250,9 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 	}
 
 	for _, machine := range machines {
-		slog.Debug("machine information", "nodeName", machine.nodeName, "machineUUID", machine.machineUUID, "fabricID", machine.fabricID)
+		slog.Debug("machine information", "nodeName", machine.nodeName, "machineUUID", machine.machineUUID, "fabricID", safeReference(machine.fabricID))
 		for modelName, device := range machine.deviceList {
-			slog.Debug("device information", "nodeName", machine.nodeName, "modelName", modelName, "available", device.availableDeviceCount, "min", device.minDeviceCount, "max", device.maxDeviceCount)
+			slog.Debug("device information", "nodeName", machine.nodeName, "modelName", modelName, "available", device.availableDeviceCount, "min", safeReference(device.minDeviceCount), "max", safeReference(device.maxDeviceCount))
 		}
 	}
 
@@ -311,10 +315,18 @@ func (m *CDIManager) setMinMaxNums(ctx context.Context, machines []*machine) err
 		return err
 	}
 	var ngInfos []*client.CMNodeGroupInfo
+	var resources []client.NodeGroupResource
 	for _, nodeGroup := range nodeGroups.NodeGroups {
 		ngInfo, err := m.getNodeGroupInfo(ctx, nodeGroup)
 		if err != nil {
 			return err
+		}
+		for _, resource := range ngInfo.Resources {
+			if machines[0].deviceList[resource.ModelName] != nil {
+				resources = append(resources, resource)
+			} else {
+				slog.Warn("unexpected device model name from CM", "modelName", resource.ModelName)
+			}
 		}
 		ngInfos = append(ngInfos, ngInfo)
 	}
@@ -323,10 +335,14 @@ func (m *CDIManager) setMinMaxNums(ctx context.Context, machines []*machine) err
 		for _, ngInfo := range ngInfos {
 			if slices.Contains(ngInfo.MachineIDs, machine.machineUUID) {
 				foundMachine[machine.machineUUID] = true
-				for _, resource := range ngInfo.Resources {
+				for _, resource := range resources {
 					device := machine.deviceList[resource.ModelName]
-					device.minDeviceCount = resource.MinResourceCount
-					device.maxDeviceCount = resource.MaxResourceCount
+					if resource.MinResourceCount != nil {
+						device.minDeviceCount = resource.MinResourceCount
+					}
+					if resource.MaxResourceCount != nil {
+						device.maxDeviceCount = resource.MaxResourceCount
+					}
 				}
 			}
 		}
@@ -349,7 +365,7 @@ func (m *CDIManager) getMachineList(ctx context.Context) (*client.FMMachineList,
 	}
 	slog.Info("FM machine list API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
 	for _, machine := range mList.Data.Machines {
-		slog.Debug("got machine list", "machineUUID", machine.MachineUUID, "fabricID", machine.FabricID)
+		slog.Debug("got machine list", "machineUUID", machine.MachineUUID, "fabricID", safeReference(machine.FabricID))
 	}
 	return mList, nil
 }
@@ -401,7 +417,7 @@ func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.Node
 	}
 	slog.Debug("got node group info, resources length", "resourceLen", len(nodeGroupInfo.Resources), "NodeGroupName", nodeGroupInfo.Name)
 	for _, resource := range nodeGroupInfo.Resources {
-		slog.Debug("got node group info, resource min/max", "modelName", resource.ModelName, "min", resource.MinResourceCount, "max", resource.MaxResourceCount)
+		slog.Debug("got node group info, resource min/max", "modelName", resource.ModelName, "min", safeReference(resource.MinResourceCount), "max", safeReference(resource.MaxResourceCount))
 	}
 	return nodeGroupInfo, nil
 }
@@ -411,17 +427,17 @@ func (m *CDIManager) manageCDIResourceSlices(machines []*machine, controlles map
 	for driverName := range m.namedDriverResources {
 		fabricFound := make(map[int]bool)
 		for _, machine := range machines {
-			if !fabricFound[machine.fabricID] {
+			if !fabricFound[*machine.fabricID] {
 				for _, device := range machine.deviceList {
 					if device.driverName == driverName {
-						poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(machine.fabricID)
-						updated := m.updatePool(driverName, poolName, device, machine.fabricID)
+						poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(*machine.fabricID)
+						updated := m.updatePool(driverName, poolName, device, *machine.fabricID)
 						if updated {
 							needUpdate[driverName] = true
 						}
 					}
 				}
-				fabricFound[machine.fabricID] = true
+				fabricFound[*machine.fabricID] = true
 			}
 		}
 	}
@@ -465,19 +481,22 @@ func (m *CDIManager) manageCDINodeLabel(ctx context.Context, machines []*machine
 		}
 		// Label for fabric
 		fabricLabelKey := m.labelPrefix + "/" + "fabric"
-		node.Labels[fabricLabelKey] = strconv.Itoa(machine.fabricID)
-		slog.Debug("set labels for fabric", "nodeName", machine.nodeName, "label", fabricLabelKey+"="+strconv.Itoa(machine.fabricID))
+		node.Labels[fabricLabelKey] = strconv.Itoa(*machine.fabricID)
+		slog.Debug("set labels for fabric", "nodeName", machine.nodeName, "label", fabricLabelKey+"="+node.Labels[fabricLabelKey])
 		// Label for the min and max number of devices
 		for _, device := range machine.deviceList {
-			maxLabelKey := m.labelPrefix + "/" + device.k8sDeviceName + "-size-max"
-			max := strconv.Itoa(device.maxDeviceCount)
-			node.Labels[maxLabelKey] = max
-
-			minLabelKey := m.labelPrefix + "/" + device.k8sDeviceName + "-size-min"
-			min := strconv.Itoa(device.minDeviceCount)
-			node.Labels[minLabelKey] = min
-
-			slog.Debug("set labels for min and max of devices", "nodeName", machine.nodeName, "label", minLabelKey+"="+min, "label", maxLabelKey+"="+max)
+			if device.maxDeviceCount != nil {
+				maxLabelKey := m.labelPrefix + "/" + device.k8sDeviceName + "-size-max"
+				max := strconv.Itoa(*device.maxDeviceCount)
+				node.Labels[maxLabelKey] = max
+				slog.Debug("set labels for max of devices", "nodeName", machine.nodeName, "label", maxLabelKey+"="+max)
+			}
+			if device.minDeviceCount != nil {
+				minLabelKey := m.labelPrefix + "/" + device.k8sDeviceName + "-size-min"
+				min := strconv.Itoa(*device.minDeviceCount)
+				node.Labels[minLabelKey] = min
+				slog.Debug("set labels for min of devices", "nodeName", machine.nodeName, "label", minLabelKey+"="+min)
+			}
 		}
 
 		_, err = m.coreClient.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
@@ -506,13 +525,13 @@ func initDriverResources(devInfos []config.DeviceInfo) map[string]*resourceslice
 	return result
 }
 
-func getFabricID(mList *client.FMMachineList, muuid string) (fabricID int) {
+func getFabricID(mList *client.FMMachineList, muuid string) (fabricID *int) {
 	for _, machine := range mList.Data.Machines {
 		if machine.MachineUUID == muuid {
 			return machine.FabricID
 		}
 	}
-	return -1
+	return nil
 }
 
 func generatePool(device *device, fabricID int, generation int64) resourceslice.Pool {
@@ -564,6 +583,13 @@ func generatePool(device *device, fabricID int, generation int64) resourceslice.
 		Generation: generation,
 	}
 	return pool
+}
+
+func safeReference(ptr *int) string {
+	if ptr != nil {
+		return strconv.Itoa(*ptr)
+	}
+	return "<nil>"
 }
 
 func (in deviceList) DeepCopy() (out deviceList) {
