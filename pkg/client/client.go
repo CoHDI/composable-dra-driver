@@ -38,24 +38,24 @@ type IMToken struct {
 }
 
 type FMMachineList struct {
-	Data Machines `json:"data"`
+	Data FMMachines `json:"data"`
 }
 
-type Machines struct {
-	Machines []Machine `json:"machines"`
+type FMMachines struct {
+	Machines []FMMachine `json:"machines"`
 }
 
-type Machine struct {
-	FabricUUID   *string           `json:"fabric_uuid"`
-	FabricID     *int              `json:"fabric_id"`
-	MachineUUID  string            `json:"mach_uuid"`
-	MachineID    int               `json:"mach_id"`
-	MachineName  string            `json:"mach_name"`
-	MachineOwner string            `json:"mach_owner"`
-	Resources    []MachineResource `json:"resources"`
+type FMMachine struct {
+	FabricUUID   *string             `json:"fabric_uuid"`
+	FabricID     *int                `json:"fabric_id"`
+	MachineUUID  string              `json:"mach_uuid"`
+	MachineID    int                 `json:"mach_id"`
+	MachineName  string              `json:"mach_name"`
+	MachineOwner string              `json:"mach_owner"`
+	Resources    []FMMachineResource `json:"resources"`
 }
 
-type MachineResource struct {
+type FMMachineResource struct {
 	ResourceUUID     string `json:"res_uuid"`
 	ResourceName     string `json:"res_name"`
 	ResourceType     string `json:"res_type"`
@@ -76,10 +76,10 @@ type Condition struct {
 }
 
 type CMNodeGroups struct {
-	NodeGroups []NodeGroup `json:"nodegroups"`
+	NodeGroups []CMNodeGroup `json:"nodegroups"`
 }
 
-type NodeGroup struct {
+type CMNodeGroup struct {
 	UUID      string `json:"uuid"`
 	Name      string `json:"name"`
 	NodeCount int    `json:"node_count"`
@@ -87,26 +87,64 @@ type NodeGroup struct {
 }
 
 type CMNodeGroupInfo struct {
-	UUID         string              `json:"uuid"`
-	Name         string              `json:"name"`
-	Composable   bool                `json:"composable"`
-	NodeCount    int                 `json:"node_count"`
-	Role         string              `json:"role"`
-	MinNodeCount int                 `json:"min_node_count"`
-	MaxNodeCount int                 `json:"max_node_count"`
-	Status       string              `json:"status"`
-	StatusReason string              `json:"status_reason"`
-	Resources    []NodeGroupResource `json:"resources"`
-	NodeIDs      []string            `json:"node_ids"`
-	MachineIDs   []string            `json:"mach_ids"`
+	UUID         string                `json:"uuid"`
+	Name         string                `json:"name"`
+	Composable   bool                  `json:"composable"`
+	NodeCount    int                   `json:"node_count"`
+	Role         string                `json:"role"`
+	MinNodeCount int                   `json:"min_node_count"`
+	MaxNodeCount int                   `json:"max_node_count"`
+	Status       string                `json:"status"`
+	StatusReason string                `json:"status_reason"`
+	Resources    []CMNodeGroupResource `json:"resources"`
+	NodeIDs      []string              `json:"node_ids"`
+	MachineIDs   []string              `json:"mach_ids"`
 }
 
-type NodeGroupResource struct {
+type CMNodeGroupResource struct {
 	ResourceName     string `json:"resource_name"`
 	ResourceType     string `json:"resource_type"`
 	ModelName        string `json:"model_name"`
 	MinResourceCount *int   `json:"min_resource_count"`
 	MaxResourceCount *int   `json:"max_resource_count"`
+}
+
+type CMNodeDetails struct {
+	Data CMTenant `json:"data"`
+}
+
+type CMTenant struct {
+	TenantUUID string    `json:"tenant_uuid"`
+	Cluster    CMCluster `json:"cluster"`
+}
+
+type CMCluster struct {
+	ClusterUUID string    `json:"cluster_uuid"`
+	Machine     CMMachine `json:"machine"`
+}
+
+type CMMachine struct {
+	UUID     string      `json:"uuid"`
+	Name     string      `json:"name"`
+	ResSpecs []CMResSpec `json:"resspecs"`
+}
+
+type CMResSpec struct {
+	SpecUUID        string     `json:"spec_uuid"`
+	Type            string     `json:"type"`
+	Selector        CMSelector `json:"selector"`
+	MinResSpecCount *int       `json:"min_resspec_count"`
+	MaxResSpecCount *int       `json:"max_resspec_count"`
+	DeviceCount     int        `json:"device_count"`
+}
+
+type CMSelector struct {
+	Version    string       `json:"version"`
+	Expression CMExpression `json:"expression"`
+}
+
+type CMExpression struct {
+	Conditions []Condition `json:"conditions"`
 }
 
 type RequestIDKey struct{}
@@ -268,7 +306,7 @@ func (c *CDIClient) GetCMNodeGroups(ctx context.Context) (*CMNodeGroups, error) 
 	return cmNodeGroups, nil
 }
 
-func (c *CDIClient) GetCMNodeGroupInfo(ctx context.Context, ng NodeGroup) (*CMNodeGroupInfo, error) {
+func (c *CDIClient) GetCMNodeGroupInfo(ctx context.Context, ng CMNodeGroup) (*CMNodeGroupInfo, error) {
 	cmNodeGroupInfo := &CMNodeGroupInfo{}
 	r := newRequest(http.MethodGet)
 	path := "cluster_manager/cluster_autoscaler/v2/tenants/" + c.TenantId + "/clusters/" + c.ClusterId + "/nodegroups/" + ng.UUID
@@ -291,6 +329,31 @@ func (c *CDIClient) GetCMNodeGroupInfo(ctx context.Context, ng NodeGroup) (*CMNo
 		return nil, err
 	}
 	return cmNodeGroupInfo, nil
+}
+
+func (c *CDIClient) GetCMNodeDetails(ctx context.Context, muuid string) (*CMNodeDetails, error) {
+	cmNodeDetails := &CMNodeDetails{}
+	r := newRequest(http.MethodGet)
+	path := "cluster_manager/cluster_autoscaler/v3/tenants/" + c.TenantId + "/clusters/" + c.ClusterId + "/machines/" + muuid
+	token, err := c.TokenSource.Token()
+	if err != nil {
+		return nil, err
+	}
+	req := r.setHost(c.Host).setPath(path).setHeader("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
+
+	httpReq, err := newHTTPRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, httpReq)
+	if err != nil {
+		return nil, err
+	}
+	err = resp.into(ctx, cmNodeDetails)
+	if err != nil {
+		return nil, err
+	}
+	return cmNodeDetails, nil
 }
 
 type result struct {
