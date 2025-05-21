@@ -39,10 +39,11 @@ type CDIManager struct {
 }
 
 type machine struct {
-	nodeName    string
-	machineUUID string
-	fabricID    *int
-	deviceList  deviceList
+	nodeName      string
+	machineUUID   string
+	fabricID      *int
+	deviceList    deviceList
+	nodeGroupUUID string
 }
 
 type deviceList map[string]*device
@@ -187,6 +188,20 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 	if err != nil {
 		return err
 	}
+	// Get node groups
+	nodeGroups, err := m.getNodeGroups(ctx)
+	if err != nil {
+		return err
+	}
+	// Get node group info
+	var ngInfos []*client.CMNodeGroupInfo
+	for _, nodeGroup := range nodeGroups.NodeGroups {
+		ngInfo, err := m.getNodeGroupInfo(ctx, nodeGroup)
+		if err != nil {
+			return err
+		}
+		ngInfos = append(ngInfos, ngInfo)
+	}
 
 	// Create machine which have information of node and devices
 	var machines []*machine
@@ -197,10 +212,20 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 			slog.Warn("not found fabric id for the machine", "machineUUID", muuid, "nodeName", nodeName)
 			continue
 		}
+		foundInNodeGroup := make(map[string]string)
+		for _, ngInfo := range ngInfos {
+			if slices.Contains(ngInfo.MachineIDs, muuid) {
+				foundInNodeGroup[muuid] = ngInfo.UUID
+			}
+		}
+		if _, exist := foundInNodeGroup[muuid]; !exist {
+			slog.Warn("the machine is not found in all node groups, so not set max/min device num", "nodeName", nodeName, "machineUUID", muuid)
+		}
 		machine := &machine{
-			nodeName:    nodeName,
-			machineUUID: muuid,
-			fabricID:    fabricID,
+			nodeName:      nodeName,
+			machineUUID:   muuid,
+			fabricID:      fabricID,
+			nodeGroupUUID: foundInNodeGroup[muuid],
 		}
 		machines = append(machines, machine)
 	}
@@ -243,10 +268,42 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 	}
 
 	// Get the minimum and maximum number of devices in the node group
-	// and set them into device of every machine.
-	err = m.setMinMaxNums(ctx, machines)
-	if err != nil {
-		return err
+	type limit struct {
+		min *int
+		max *int
+	}
+	type deviceMinMax map[string]limit
+	nodeGroupFound := make(map[string]deviceMinMax)
+	for _, machine := range machines {
+		if _, exists := nodeGroupFound[machine.nodeGroupUUID]; exists {
+			continue
+		}
+		var deviceMinMax deviceMinMax = make(map[string]limit)
+		for model := range machine.deviceList {
+			min, max, err := m.getMinMaxNums(ctx, machine.machineUUID, model)
+			if err != nil {
+				return err
+			}
+			deviceMinMax[model] = limit{min: min, max: max}
+		}
+		nodeGroupFound[machine.nodeGroupUUID] = deviceMinMax
+	}
+
+	// Copy device min/max into machine in same node group
+	for ngUUID, deviceMinMax := range nodeGroupFound {
+		for _, machine := range machines {
+			if machine.nodeGroupUUID != ngUUID {
+				continue
+			}
+			for model, limit := range deviceMinMax {
+				if limit.min != nil {
+					machine.deviceList[model].minDeviceCount = limit.min
+				}
+				if limit.max != nil {
+					machine.deviceList[model].maxDeviceCount = limit.max
+				}
+			}
+		}
 	}
 
 	for _, machine := range machines {
@@ -309,50 +366,6 @@ func (m *CDIManager) getMachineUUIDs() (map[string]string, error) {
 	return uuids, nil
 }
 
-func (m *CDIManager) setMinMaxNums(ctx context.Context, machines []*machine) error {
-	nodeGroups, err := m.getNodeGroups(ctx)
-	if err != nil {
-		return err
-	}
-	var ngInfos []*client.CMNodeGroupInfo
-	var resources []client.NodeGroupResource
-	for _, nodeGroup := range nodeGroups.NodeGroups {
-		ngInfo, err := m.getNodeGroupInfo(ctx, nodeGroup)
-		if err != nil {
-			return err
-		}
-		for _, resource := range ngInfo.Resources {
-			if machines[0].deviceList[resource.ModelName] != nil {
-				resources = append(resources, resource)
-			} else {
-				slog.Warn("unexpected device model name from CM", "modelName", resource.ModelName)
-			}
-		}
-		ngInfos = append(ngInfos, ngInfo)
-	}
-	for _, machine := range machines {
-		foundMachine := make(map[string]bool)
-		for _, ngInfo := range ngInfos {
-			if slices.Contains(ngInfo.MachineIDs, machine.machineUUID) {
-				foundMachine[machine.machineUUID] = true
-				for _, resource := range resources {
-					device := machine.deviceList[resource.ModelName]
-					if resource.MinResourceCount != nil {
-						device.minDeviceCount = resource.MinResourceCount
-					}
-					if resource.MaxResourceCount != nil {
-						device.maxDeviceCount = resource.MaxResourceCount
-					}
-				}
-			}
-		}
-		if !foundMachine[machine.machineUUID] {
-			slog.Info("the machine is not found in all node groups, so not set max/min device num", "nodeName", machine.nodeName, "machineUUID", machine.machineUUID)
-		}
-	}
-	return nil
-}
-
 func (m *CDIManager) getMachineList(ctx context.Context) (*client.FMMachineList, error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
 	slog.Info("trying to get machine list from FabricManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
@@ -401,7 +414,7 @@ func (m *CDIManager) getNodeGroups(ctx context.Context) (*client.CMNodeGroups, e
 	return nodeGroups, nil
 }
 
-func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.NodeGroup) (*client.CMNodeGroupInfo, error) {
+func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.CMNodeGroup) (*client.CMNodeGroupInfo, error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
 	slog.Info("trying to get node group info from ClusterManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
 
@@ -420,6 +433,32 @@ func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.Node
 		slog.Debug("got node group info, resource min/max", "modelName", resource.ModelName, "min", safeReference(resource.MinResourceCount), "max", safeReference(resource.MaxResourceCount))
 	}
 	return nodeGroupInfo, nil
+}
+
+func (m *CDIManager) getMinMaxNums(ctx context.Context, muuid string, modelName string) (min *int, max *int, error error) {
+	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
+	slog.Info("trying to get node details from ClusterManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+
+	// Publish API to get node details from ClusterManager
+	nodeDetails, err := m.cdiClient.GetCMNodeDetails(ctx, muuid)
+	if err != nil {
+		slog.Error("CM node details API failed", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+		return nil, nil, err
+	}
+	slog.Info("CM node details API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	for _, resspec := range nodeDetails.Data.Cluster.Machine.ResSpecs {
+		for _, condition := range resspec.Selector.Expression.Conditions {
+			if condition.Column == "model" && condition.Operator == "eq" && condition.Value == modelName {
+				if resspec.MinResSpecCount != nil {
+					min = resspec.MinResSpecCount
+				}
+				if resspec.MaxResSpecCount != nil {
+					max = resspec.MaxResSpecCount
+				}
+			}
+		}
+	}
+	return min, max, nil
 }
 
 func (m *CDIManager) manageCDIResourceSlices(machines []*machine, controlles map[string]*resourceslice.Controller) error {

@@ -135,8 +135,8 @@ var testIMToken IMToken = IMToken{
 }
 
 var testMachineList FMMachineList = FMMachineList{
-	Data: Machines{
-		Machines: []Machine{
+	Data: FMMachines{
+		Machines: []FMMachine{
 			{
 				FabricID: ptr.To(1),
 			},
@@ -288,8 +288,8 @@ func TestGetFMMachineList(t *testing.T) {
 			tenantId:    "0001",
 			expectedErr: false,
 			expectedMachineList: &FMMachineList{
-				Data: Machines{
-					Machines: []Machine{
+				Data: FMMachines{
+					Machines: []FMMachine{
 						{
 							FabricID: ptr.To(1),
 						},
