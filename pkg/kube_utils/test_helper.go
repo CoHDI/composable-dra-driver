@@ -82,7 +82,11 @@ func MustCreateKubeControllers(t testing.TB, testConfig *TestConfig) (*KubeContr
 	discoveryclient := kubeclient.Discovery()
 
 	stopCh := make(chan struct{})
-	controllers, err := CreateKubeControllers(kubeclient, dynamicclient, discoveryclient, stopCh)
+	var useCapiBmh bool
+	if len(testConfig.Machines) > 0 && len(testConfig.BMHs) > 0 {
+		useCapiBmh = true
+	}
+	controllers, err := CreateKubeControllers(kubeclient, dynamicclient, discoveryclient, useCapiBmh, stopCh)
 	if err != nil {
 		t.Fatal("failed to create test controller")
 	}
