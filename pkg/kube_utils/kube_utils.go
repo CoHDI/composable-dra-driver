@@ -72,7 +72,7 @@ func NewClientConfig() (*rest.Config, error) {
 	return config, nil
 }
 
-func CreateKubeControllers(coreClient kube_client.Interface, machineClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface, stopChannel <-chan struct{}) (*KubeControllers, error) {
+func CreateKubeControllers(coreClient kube_client.Interface, machineClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface, useCapiBmh bool, stopChannel <-chan struct{}) (*KubeControllers, error) {
 	coreInformerFactory := kubeinformers.NewSharedInformerFactory(coreClient, 0)
 	machineInformerFactory := dynamicinformer.NewDynamicSharedInformerFactory(machineClient, 0)
 
@@ -88,38 +88,42 @@ func CreateKubeControllers(coreClient kube_client.Interface, machineClient dynam
 
 	var machineInformer kubeinformers.GenericInformer
 	var bmhInformer kubeinformers.GenericInformer
+	var machineAvailable bool
+	var bmhAvailable bool
 
-	machineAvailable, err := groupVersionHasResource(discoveryClient,
-		fmt.Sprintf("%s/%s", MachineAPIGroup, MachineAPIVersion), MachineResourceName)
-	if err != nil {
-		return nil, err
-	}
-	if machineAvailable {
-		gvrMachine := schema.GroupVersionResource{
-			Group:    MachineAPIGroup,
-			Version:  MachineAPIVersion,
-			Resource: MachineResourceName,
-		}
-		machineInformer = machineInformerFactory.ForResource(gvrMachine)
-	}
-
-	bmhAvailable, err := groupVersionHasResource(discoveryClient,
-		fmt.Sprintf("%s/%s", Metal3APIGroup, Metal3APIVersion), BareMetalHostResourceName)
-	if err != nil {
-		return nil, err
-	}
-	if bmhAvailable {
-		gvrBMH := schema.GroupVersionResource{
-			Group:    Metal3APIGroup,
-			Version:  Metal3APIVersion,
-			Resource: BareMetalHostResourceName,
-		}
-		bmhInformer = machineInformerFactory.ForResource(gvrBMH)
-		if err := bmhInformer.Informer().GetIndexer().AddIndexers(cache.Indexers{
-			bmhProviderIDIndex: indexBMHByProviderID,
-		}); err != nil {
-			slog.Error("Cannot add bmh indexer", "error", err)
+	if useCapiBmh {
+		machineAvailable, err := groupVersionHasResource(discoveryClient,
+			fmt.Sprintf("%s/%s", MachineAPIGroup, MachineAPIVersion), MachineResourceName)
+		if err != nil {
 			return nil, err
+		}
+		if machineAvailable {
+			gvrMachine := schema.GroupVersionResource{
+				Group:    MachineAPIGroup,
+				Version:  MachineAPIVersion,
+				Resource: MachineResourceName,
+			}
+			machineInformer = machineInformerFactory.ForResource(gvrMachine)
+		}
+
+		bmhAvailable, err := groupVersionHasResource(discoveryClient,
+			fmt.Sprintf("%s/%s", Metal3APIGroup, Metal3APIVersion), BareMetalHostResourceName)
+		if err != nil {
+			return nil, err
+		}
+		if bmhAvailable {
+			gvrBMH := schema.GroupVersionResource{
+				Group:    Metal3APIGroup,
+				Version:  Metal3APIVersion,
+				Resource: BareMetalHostResourceName,
+			}
+			bmhInformer = machineInformerFactory.ForResource(gvrBMH)
+			if err := bmhInformer.Informer().GetIndexer().AddIndexers(cache.Indexers{
+				bmhProviderIDIndex: indexBMHByProviderID,
+			}); err != nil {
+				slog.Error("Cannot add bmh indexer", "error", err)
+				return nil, err
+			}
 		}
 	}
 

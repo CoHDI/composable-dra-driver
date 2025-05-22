@@ -82,7 +82,7 @@ func StartCDIManager(ctx context.Context, cfg *config.Config) error {
 	}
 
 	// Create k8s controllers for Nodes, ConfigMap, Secret, Machine and BMH
-	kc, err := kube_utils.CreateKubeControllers(coreclient, machineclient, discoveryClient, ctx.Done())
+	kc, err := kube_utils.CreateKubeControllers(coreclient, machineclient, discoveryClient, cfg.UseCapiBmh, ctx.Done())
 	if err != nil {
 		slog.Error("Failed to create kube controllers")
 		return err
