@@ -326,6 +326,7 @@ func (c *CDIClient) GetCMNodeGroupInfo(ctx context.Context, ng CMNodeGroup) (*CM
 	}
 	err = resp.into(ctx, cmNodeGroupInfo)
 	if err != nil {
+		slog.Error(err.Error(), "response", string(resp.body))
 		return nil, err
 	}
 	return cmNodeGroupInfo, nil
@@ -351,6 +352,7 @@ func (c *CDIClient) GetCMNodeDetails(ctx context.Context, muuid string) (*CMNode
 	}
 	err = resp.into(ctx, cmNodeDetails)
 	if err != nil {
+		slog.Error(err.Error(), "response", string(resp.body))
 		return nil, err
 	}
 	return cmNodeDetails, nil
