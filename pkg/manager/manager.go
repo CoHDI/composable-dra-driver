@@ -10,7 +10,7 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
-	resourceapi "k8s.io/api/resource/v1beta1"
+	resourceapi "k8s.io/api/resource/v1beta2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/discovery"
@@ -578,16 +578,14 @@ func generatePool(device *device, fabricID int, generation int64) resourceslice.
 	for i := 0; i < device.availableDeviceCount; i++ {
 		d := resourceapi.Device{
 			Name: fmt.Sprintf("%s-gpu%d", device.k8sDeviceName, i),
-			Basic: &resourceapi.BasicDevice{
-				Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
-					"type": {
-						StringValue: ptr.To(GpuDeviceType),
-					},
+			Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
+				"type": {
+					StringValue: ptr.To(GpuDeviceType),
 				},
 			},
 		}
 		for key, value := range device.draAttributes {
-			d.Basic.Attributes[resourceapi.QualifiedName(key)] = resourceapi.DeviceAttribute{StringValue: ptr.To(value)}
+			d.Attributes[resourceapi.QualifiedName(key)] = resourceapi.DeviceAttribute{StringValue: ptr.To(value)}
 		}
 		devices = append(devices, d)
 	}

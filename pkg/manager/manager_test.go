@@ -12,7 +12,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
-	resourceapi "k8s.io/api/resource/v1beta1"
+	resourceapi "k8s.io/api/resource/v1beta2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	fakekube "k8s.io/client-go/kubernetes/fake"
@@ -69,11 +69,9 @@ func createTestDriverResources() map[string]*resourceslice.DriverResources {
 						Devices: []resourceapi.Device{
 							{
 								Name: "test-a100-40-gpu1",
-								Basic: &resourceapi.BasicDevice{
-									Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
-										"productName": {
-											StringValue: ptr.To("TEST A100 40GB PCIe"),
-										},
+								Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
+									"productName": {
+										StringValue: ptr.To("TEST A100 40GB PCIe"),
 									},
 								},
 							},
