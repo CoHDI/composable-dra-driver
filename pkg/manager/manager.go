@@ -36,6 +36,7 @@ type CDIManager struct {
 	cdiClient            *client.CDIClient
 	kubecontrollers      *kube_utils.KubeControllers
 	useCapiBmh           bool
+	bindingTimeout       *int64
 }
 
 type machine struct {
@@ -55,6 +56,7 @@ type device struct {
 	availableDeviceCount int
 	minDeviceCount       *int
 	maxDeviceCount       *int
+	bindingTimeout       *int64
 }
 
 func StartCDIManager(ctx context.Context, cfg *config.Config) error {
@@ -132,6 +134,7 @@ func StartCDIManager(ctx context.Context, cfg *config.Config) error {
 		cdiClient:            cdiclient,
 		kubecontrollers:      kc,
 		useCapiBmh:           cfg.UseCapiBmh,
+		bindingTimeout:       cfg.BindingTimout,
 	}
 
 	controllers, err := m.startResourceSliceController(ctx)
@@ -252,6 +255,7 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 				driverName:           deviceInfo.DriverName,
 				draAttributes:        deviceInfo.DRAAttributes,
 				availableDeviceCount: availableNum,
+				bindingTimeout:       m.bindingTimeout,
 			}
 		}
 		fabricFound[*machine.fabricID] = deviceList
@@ -583,6 +587,10 @@ func generatePool(device *device, fabricID int, generation int64) resourceslice.
 					StringValue: ptr.To(GpuDeviceType),
 				},
 			},
+			UsageRestrictedToNode:    ptr.To(true),
+			BindingConditions:        []string{"FabricDeviceReady"},
+			BindingFailureConditions: []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
+			BindingTimeoutSeconds:    device.bindingTimeout,
 		}
 		for key, value := range device.draAttributes {
 			d.Attributes[resourceapi.QualifiedName(key)] = resourceapi.DeviceAttribute{StringValue: ptr.To(value)}
