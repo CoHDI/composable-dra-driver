@@ -1,9 +1,12 @@
 package manager
 
 import (
+	"cdi_dra/pkg/client"
 	"cdi_dra/pkg/config"
 	ku "cdi_dra/pkg/kube_utils"
 	"context"
+	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"testing"
 	"time"
@@ -84,17 +87,48 @@ func createTestDriverResources() map[string]*resourceslice.DriverResources {
 	return ndr
 }
 
-func createTestManager(useCapiBmh bool) *CDIManager {
+func createTestManager(t testing.TB, useCapiBmh bool, nodeCount int) (*CDIManager, *httptest.Server, ku.TestControllerShutdownFunc) {
 	//kubeObjects := make([]runtime.Object, 0)
 	coreClient := fakekube.NewSimpleClientset()
 	ndr := createTestDriverResources()
+
+	server, certPem := client.CreateTLSServer(t)
+	server.StartTLS()
+
+	secret := config.CreateSecret(certPem)
+	testConfig := &ku.TestConfig{
+		Secret:   secret,
+		Nodes:    make([]*v1.Node, nodeCount),
+		Machines: make([]*unstructured.Unstructured, nodeCount),
+		BMHs:     make([]*unstructured.Unstructured, nodeCount),
+	}
+	for i := 0; i < nodeCount; i++ {
+		testConfig.Nodes[i], testConfig.BMHs[i], testConfig.Machines[i] = ku.CreateNodeBMHMachines(i, "test-namespace", useCapiBmh)
+	}
+	kc, stop := ku.MustCreateKubeControllers(t, testConfig)
+
+	parsedURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("failed to parse URL: %v", err)
+	}
+	cfg := &config.Config{
+		CDIEndpoint: parsedURL.Host,
+		TenantID:    "0001",
+		ClusterID:   "0001",
+	}
+	cdiClient, err := client.BuildCDIClient(cfg, kc)
+	if err != nil {
+		t.Fatalf("failed to build CDIClient: %v", err)
+	}
 
 	return &CDIManager{
 		coreClient:           coreClient,
 		discoveryClient:      ku.CreateDiscoveryClient(true),
 		namedDriverResources: ndr,
+		cdiClient:            cdiClient,
+		kubecontrollers:      kc,
 		useCapiBmh:           useCapiBmh,
-	}
+	}, server, stop
 
 }
 
@@ -135,7 +169,8 @@ func TestInitDrvierResources(t *testing.T) {
 }
 
 func TestCDIManagerStartResourceSliceController(t *testing.T) {
-	m := createTestManager(true)
+	m, _, stop := createTestManager(t, true, 1)
+	defer stop()
 
 	testCases := []struct {
 		name                string
@@ -235,17 +270,7 @@ func TestCDIManagerGetMachineUUID(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := createTestManager(tc.useCapiBmh)
-			testConfig := &ku.TestConfig{
-				Nodes:    make([]*v1.Node, tc.nodeCount),
-				Machines: make([]*unstructured.Unstructured, tc.nodeCount),
-				BMHs:     make([]*unstructured.Unstructured, tc.nodeCount),
-			}
-			for i := 0; i < tc.nodeCount; i++ {
-				testConfig.Nodes[i], testConfig.BMHs[i], testConfig.Machines[i] = ku.CreateNodeBMHMachines(i, "test-namespace", tc.useCapiBmh)
-			}
-			var stop ku.TestControllerShutdownFunc
-			m.kubecontrollers, stop = ku.MustCreateKubeControllers(t, testConfig)
+			m, _, stop := createTestManager(t, tc.useCapiBmh, tc.nodeCount)
 			defer stop()
 			muuids, err := m.getMachineUUIDs()
 			if tc.expectedErr {
@@ -256,6 +281,279 @@ func TestCDIManagerGetMachineUUID(t *testing.T) {
 				}
 				if muuids[tc.nodeName] != tc.expectedMachineUUID {
 					t.Errorf("unexpected machine uuid got: expected %s, but got %s", tc.expectedMachineUUID, muuids[tc.nodeName])
+				}
+			}
+		})
+	}
+}
+
+func TestCDIManagerGetMachineList(t *testing.T) {
+	testCases := []struct {
+		name        string
+		nodeCount   int
+		useCapiBmh  bool
+		expectedErr bool
+	}{
+		{
+			name:        "When correctly getting machine list",
+			nodeCount:   1,
+			useCapiBmh:  true,
+			expectedErr: false,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, server, stop := createTestManager(t, tc.useCapiBmh, tc.nodeCount)
+			defer stop()
+			defer server.Close()
+
+			mList, err := m.getMachineList(context.Background())
+			if tc.expectedErr {
+
+			} else if !tc.expectedErr {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if len(mList.Data.Machines) != tc.nodeCount {
+					t.Errorf("unexpected node length, expected %d but got %d", tc.nodeCount, len(mList.Data.Machines))
+				}
+			}
+
+		})
+	}
+
+}
+
+func TestCDIManagerGetAvailableNums(t *testing.T) {
+	testCases := []struct {
+		name                               string
+		nodeCount                          int
+		machineUUID                        string
+		modelName                          string
+		useCapiBmh                         bool
+		expectedErr                        bool
+		expectedAvailableReservedResources int
+	}{
+		{
+			name:                               "When correctly getting available number of fabric devices in resource pool",
+			nodeCount:                          1,
+			machineUUID:                        "0001",
+			modelName:                          "A100",
+			useCapiBmh:                         true,
+			expectedErr:                        false,
+			expectedAvailableReservedResources: 5,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, server, stop := createTestManager(t, tc.useCapiBmh, tc.nodeCount)
+			defer stop()
+			defer server.Close()
+
+			availableResources, err := m.getAvailableNums(context.Background(), tc.machineUUID, tc.modelName)
+			if tc.expectedErr {
+
+			} else if !tc.expectedErr {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if availableResources != tc.expectedAvailableReservedResources {
+					t.Errorf("unexpected response of available reserved resources, expected %d but got %d", tc.expectedAvailableReservedResources, availableResources)
+				}
+			}
+		})
+	}
+}
+
+func TestCDIManagerGetNodeGroups(t *testing.T) {
+	testCases := []struct {
+		name                    string
+		nodeCount               int
+		useCapiBmh              bool
+		expectedErr             bool
+		expectedNodeGroupLength int
+	}{
+		{
+			name:                    "When correctly getting node groups",
+			nodeCount:               1,
+			useCapiBmh:              true,
+			expectedErr:             false,
+			expectedNodeGroupLength: 1,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, server, stop := createTestManager(t, tc.useCapiBmh, tc.nodeCount)
+			defer stop()
+			defer server.Close()
+
+			nodeGroups, err := m.getNodeGroups(context.Background())
+			if tc.expectedErr {
+
+			} else if !tc.expectedErr {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if len(nodeGroups.NodeGroups) != tc.expectedNodeGroupLength {
+					t.Errorf("unexpected node groups length, expected %d but got %d", tc.expectedNodeGroupLength, len(nodeGroups.NodeGroups))
+				}
+			}
+		})
+	}
+}
+
+func TestCDIManagerGetNodeGroupInfo(t *testing.T) {
+	testCases := []struct {
+		name                  string
+		nodeCount             int
+		useCapiBmh            bool
+		nodeGroup             client.CMNodeGroup
+		machineUUID           string
+		expectedErr           bool
+		expectedNodeGroupUUID string
+	}{
+		{
+			name:       "When correctly getting node group info",
+			nodeCount:  1,
+			useCapiBmh: true,
+			nodeGroup: client.CMNodeGroup{
+				UUID: "0001",
+			},
+			machineUUID:           "0001",
+			expectedErr:           false,
+			expectedNodeGroupUUID: "0001",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, server, stop := createTestManager(t, tc.useCapiBmh, tc.nodeCount)
+			defer stop()
+			defer server.Close()
+
+			nodeGroupInfo, err := m.getNodeGroupInfo(context.Background(), tc.nodeGroup)
+			if tc.expectedErr {
+
+			} else if !tc.expectedErr {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				for _, machineID := range nodeGroupInfo.MachineIDs {
+					if machineID == tc.machineUUID {
+						if nodeGroupInfo.UUID != tc.expectedNodeGroupUUID {
+							t.Errorf("unexpected node group UUID, expected %s, but got %s", tc.expectedNodeGroupUUID, nodeGroupInfo.UUID)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestCDIManagerGetMinMaxNums(t *testing.T) {
+	testCases := []struct {
+		name        string
+		nodeCount   int
+		useCapiBmh  bool
+		machineUUID string
+		modelName   string
+		expectedErr bool
+		expectedMin int
+		expectedMax int
+	}{
+		{
+			name:        "When correctly getting min/max number of fabric devices",
+			nodeCount:   1,
+			useCapiBmh:  true,
+			machineUUID: "0001",
+			modelName:   "A100",
+			expectedErr: false,
+			expectedMin: 1,
+			expectedMax: 3,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, server, stop := createTestManager(t, tc.useCapiBmh, tc.nodeCount)
+			defer stop()
+			defer server.Close()
+
+			min, max, err := m.getMinMaxNums(context.Background(), tc.machineUUID, tc.modelName)
+			if tc.expectedErr {
+
+			} else if !tc.expectedErr {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if min != nil {
+					if *min != tc.expectedMin {
+						t.Errorf("unexpected min value, expected %d but got %d", tc.expectedMin, *min)
+					}
+				}
+				if max != nil {
+					if *max != tc.expectedMax {
+						t.Errorf("unexpected max value, expected %d but got %d", tc.expectedMax, *max)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestGetFabricID(t *testing.T) {
+	testCases := []struct {
+		name             string
+		machineList      *client.FMMachineList
+		machineUUID      string
+		expectedErr      bool
+		expectedFabricID *int
+	}{
+		{
+			name: "When correctly getting fabric ID",
+			machineList: &client.FMMachineList{
+				Data: client.FMMachines{
+					Machines: []client.FMMachine{
+						{
+							MachineUUID: "0001",
+							FabricID:    ptr.To(1),
+						},
+					},
+				},
+			},
+			machineUUID:      "0001",
+			expectedErr:      false,
+			expectedFabricID: ptr.To(1),
+		},
+		{
+			name: "When fabric id is nil",
+			machineList: &client.FMMachineList{
+				Data: client.FMMachines{
+					Machines: []client.FMMachine{
+						{
+							MachineUUID: "0002",
+						},
+					},
+				},
+			},
+			machineUUID:      "0002",
+			expectedErr:      false,
+			expectedFabricID: nil,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fabricID := getFabricID(tc.machineList, tc.machineUUID)
+			if tc.expectedErr {
+
+			} else if !tc.expectedErr {
+				if fabricID != nil && tc.expectedFabricID != nil {
+					if *fabricID != *tc.expectedFabricID {
+						t.Errorf("unexpected fabric id, expected %d but got %d", *tc.expectedFabricID, *fabricID)
+
+					}
+				} else {
+					if tc.expectedFabricID != nil {
+						t.Errorf("unexpected fabric id, expected %d but got nil", *tc.expectedFabricID)
+					}
 				}
 			}
 		})
