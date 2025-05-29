@@ -32,7 +32,7 @@ const (
 	Metal3APIVersion          string = "v1alpha1"
 	BareMetalHostResourceName string = "baremetalhosts"
 	DRAAPIGroup               string = "resource.k8s.io"
-	DRAAPIVersion             string = "v1beta1"
+	DRAAPIVersion             string = "v1beta2"
 	ResourceSliceResourceName string = "resourceslices"
 )
 

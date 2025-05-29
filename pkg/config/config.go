@@ -14,12 +14,13 @@ const (
 )
 
 type Config struct {
-	LogLevel     int
-	ScanInterval time.Duration
-	TenantID     string
-	ClusterID    string
-	CDIEndpoint  string
-	UseCapiBmh   bool
+	LogLevel      int
+	ScanInterval  time.Duration
+	TenantID      string
+	ClusterID     string
+	CDIEndpoint   string
+	UseCapiBmh    bool
+	BindingTimout *int64
 }
 
 type DeviceInfo struct {

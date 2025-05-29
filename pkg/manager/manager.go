@@ -10,7 +10,7 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
-	resourceapi "k8s.io/api/resource/v1beta1"
+	resourceapi "k8s.io/api/resource/v1beta2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/discovery"
@@ -36,6 +36,7 @@ type CDIManager struct {
 	cdiClient            *client.CDIClient
 	kubecontrollers      *kube_utils.KubeControllers
 	useCapiBmh           bool
+	bindingTimeout       *int64
 }
 
 type machine struct {
@@ -55,6 +56,7 @@ type device struct {
 	availableDeviceCount int
 	minDeviceCount       *int
 	maxDeviceCount       *int
+	bindingTimeout       *int64
 }
 
 func StartCDIManager(ctx context.Context, cfg *config.Config) error {
@@ -132,6 +134,7 @@ func StartCDIManager(ctx context.Context, cfg *config.Config) error {
 		cdiClient:            cdiclient,
 		kubecontrollers:      kc,
 		useCapiBmh:           cfg.UseCapiBmh,
+		bindingTimeout:       cfg.BindingTimout,
 	}
 
 	controllers, err := m.startResourceSliceController(ctx)
@@ -252,6 +255,7 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 				driverName:           deviceInfo.DriverName,
 				draAttributes:        deviceInfo.DRAAttributes,
 				availableDeviceCount: availableNum,
+				bindingTimeout:       m.bindingTimeout,
 			}
 		}
 		fabricFound[*machine.fabricID] = deviceList
@@ -578,16 +582,18 @@ func generatePool(device *device, fabricID int, generation int64) resourceslice.
 	for i := 0; i < device.availableDeviceCount; i++ {
 		d := resourceapi.Device{
 			Name: fmt.Sprintf("%s-gpu%d", device.k8sDeviceName, i),
-			Basic: &resourceapi.BasicDevice{
-				Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
-					"type": {
-						StringValue: ptr.To(GpuDeviceType),
-					},
+			Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
+				"type": {
+					StringValue: ptr.To(GpuDeviceType),
 				},
 			},
+			UsageRestrictedToNode:    ptr.To(true),
+			BindingConditions:        []string{"FabricDeviceReady"},
+			BindingFailureConditions: []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
+			BindingTimeoutSeconds:    device.bindingTimeout,
 		}
 		for key, value := range device.draAttributes {
-			d.Basic.Attributes[resourceapi.QualifiedName(key)] = resourceapi.DeviceAttribute{StringValue: ptr.To(value)}
+			d.Attributes[resourceapi.QualifiedName(key)] = resourceapi.DeviceAttribute{StringValue: ptr.To(value)}
 		}
 		devices = append(devices, d)
 	}
