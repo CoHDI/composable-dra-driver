@@ -73,7 +73,7 @@ func NewClientConfig() (*rest.Config, error) {
 }
 
 func CreateKubeControllers(coreClient kube_client.Interface, machineClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface, useCapiBmh bool, stopChannel <-chan struct{}) (*KubeControllers, error) {
-	coreInformerFactory := kubeinformers.NewSharedInformerFactory(coreClient, 0)
+	coreInformerFactory := kubeinformers.NewSharedInformerFactoryWithOptions(coreClient, 0, kubeinformers.WithNamespace("composable-dra"))
 	machineInformerFactory := dynamicinformer.NewDynamicSharedInformerFactory(machineClient, 0)
 
 	configMapInformer := coreInformerFactory.Core().V1().ConfigMaps().Informer()
