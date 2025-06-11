@@ -195,6 +195,7 @@ func (c *CDIClient) GetIMToken(ctx context.Context, secret idManagerSecret) (*IM
 
 	req := r.setHost(c.Host).setPath(path).setBody(data).setHeader("Content-Type", "application/x-www-form-urlencoded")
 
+	slog.Info("connecting", "url", req.url().String())
 	httpReq, err := newHTTPRequest(req)
 	if err != nil {
 		return nil, err
@@ -370,7 +371,7 @@ func (c *CDIClient) do(ctx context.Context, req *http.Request) (*result, error) 
 	req = req.WithContext(ctx)
 	resp, err := c.Client.Do(req)
 	if err != nil {
-		slog.Error("faild to Do http request", "error", err, "requestID", ctx.Value(RequestIDKey{}).(string))
+		slog.Error("failed to Do http request", "error", err, "requestID", ctx.Value(RequestIDKey{}).(string))
 		return &result, err
 	}
 	defer resp.Body.Close()
@@ -378,7 +379,7 @@ func (c *CDIClient) do(ctx context.Context, req *http.Request) (*result, error) 
 	if resp.Body != nil {
 		data, err := io.ReadAll(resp.Body)
 		if err != nil {
-			slog.Error("unexpected error occured when reading response body", "error", err, "requestID", ctx.Value(RequestIDKey{}).(string))
+			slog.Error("unexpected error occurred when reading response body", "error", err, "requestID", ctx.Value(RequestIDKey{}).(string))
 			return &result, err
 		}
 		result.body = data

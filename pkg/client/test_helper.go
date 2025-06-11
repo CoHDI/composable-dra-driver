@@ -190,15 +190,26 @@ var testNodeDetails = CMNodeDetails{
 
 func handleRequests(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "POST" {
-		if r.URL.Path == "/id_manager/realms/CDI_DRA_Test/protocol/openid-connect/token" {
-			body, _ := io.ReadAll(r.Body)
-			targetString := "client_id=0001&client_secret=secret&username=user&password=pass&scope=openid&response=id_token token&grant_type=password"
-			if string(body) == targetString {
+		body, _ := io.ReadAll(r.Body)
+		targetString := "client_id=0001&client_secret=secret&username=user&password=pass&scope=openid&response=id_token token&grant_type=password"
+		if string(body) == targetString {
+			if r.URL.Path == "/id_manager/realms/CDI_DRA_Test/protocol/openid-connect/token" {
 				response, _ := json.Marshal(testIMToken)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(response))
 			}
+			if r.URL.Path == "/id_manager/realms/Nil_Test/protocol/openid-connect/token" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+			} else {
+				w.WriteHeader(http.StatusNotFound)
+			}
+		} else {
+			response := "certification error"
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(response))
 		}
 	}
 	if r.Method == "GET" {

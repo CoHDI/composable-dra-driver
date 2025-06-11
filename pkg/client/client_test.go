@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 
 	"k8s.io/utils/ptr"
@@ -47,15 +48,20 @@ func TestCDIClientGetIMToken(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name          string
-		password      string
-		certificate   string
-		expectedToken *IMToken
-		expectedErr   bool
+		name           string
+		host           string
+		password       string
+		realm          string
+		certificate    string
+		expectedToken  *IMToken
+		expectedErr    bool
+		expectedErrMsg string
 	}{
 		{
-			name:        "When get IM token with a correct password",
+			name:        "When getting IM token with a correct password",
+			host:        parsedURL.Host,
 			password:    "pass",
+			realm:       "CDI_DRA_Test",
 			certificate: certPem,
 			expectedToken: &IMToken{
 				AccessToken:      "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":775710000}`)),
@@ -70,6 +76,42 @@ func TestCDIClientGetIMToken(t *testing.T) {
 			},
 			expectedErr: false,
 		},
+		{
+			name:           "When getting error response due to certification error",
+			host:           parsedURL.Host,
+			password:       "invalid-pass",
+			realm:          "CDI_DRA_Test",
+			certificate:    certPem,
+			expectedErr:    true,
+			expectedErrMsg: "received unsuccessful response",
+		},
+		{
+			name:           "When failing to connect to non-existent server",
+			host:           "non-existent-host",
+			password:       "pass",
+			realm:          "CDI_DRA_Test",
+			certificate:    certPem,
+			expectedErr:    true,
+			expectedErrMsg: "dial tcp: lookup",
+		},
+		{
+			name:           "When provided a invalid realm",
+			host:           parsedURL.Host,
+			password:       "pass",
+			realm:          "invalid-charactor-#$%&\t\n",
+			certificate:    certPem,
+			expectedErr:    true,
+			expectedErrMsg: "received unsuccessful response",
+		},
+		{
+			name:           "When getting nil response",
+			host:           parsedURL.Host,
+			password:       "pass",
+			realm:          "Nil_Test",
+			certificate:    certPem,
+			expectedErr:    true,
+			expectedErrMsg: "failed to read response data",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -81,7 +123,7 @@ func TestCDIClientGetIMToken(t *testing.T) {
 			controllers, stop := ku.MustCreateKubeControllers(t, &testConfig)
 			defer stop()
 			config := &config.Config{
-				CDIEndpoint: parsedURL.Host,
+				CDIEndpoint: tc.host,
 			}
 			client, err := BuildCDIClient(config, controllers)
 			if err != nil {
@@ -90,15 +132,21 @@ func TestCDIClientGetIMToken(t *testing.T) {
 			idManagerSecret := idManagerSecret{
 				username:      "user",
 				password:      tc.password,
-				realm:         "CDI_DRA_Test",
+				realm:         tc.realm,
 				client_id:     "0001",
 				client_secret: "secret",
 				certificate:   tc.certificate,
 			}
 
-			imToken, err := client.GetIMToken(context.Background(), idManagerSecret)
+			ctx := context.WithValue(context.Background(), RequestIDKey{}, "test")
+			imToken, err := client.GetIMToken(ctx, idManagerSecret)
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Errorf("expected error, but got none")
+				}
+				if !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error: %v", err)
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
