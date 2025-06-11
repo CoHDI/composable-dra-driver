@@ -15,4 +15,7 @@ FROM docker.io/golang:1.24.1
 WORKDIR /
 COPY --from=builder /workspace/cdi_dra .
 
+RUN useradd nonroot
+USER nonroot
+
 ENTRYPOINT ["/cdi_dra"]
