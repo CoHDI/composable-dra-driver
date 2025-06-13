@@ -15,7 +15,9 @@ import (
 )
 
 const (
-	secretKey = "composable-dra/composable-dra-secret"
+	secretKey               = "composable-dra/composable-dra-secret"
+	secretAccessInfoLength  = 1000  // 1 kB
+	secretCertificateLength = 10000 // 10 kB
 )
 
 type cachedIMTokenSource struct {
@@ -35,7 +37,6 @@ type idManagerSecret struct {
 	realm         string
 	client_id     string
 	client_secret string
-	certificate   string
 }
 
 func CachedIMTokenSource(client *CDIClient, controllers *kube_utils.KubeControllers) oauth2.TokenSource {
@@ -127,12 +128,40 @@ func (ts *idManagerTokenSource) getIdManagerSecret() (idManagerSecret, error) {
 	}
 	if secret != nil {
 		if secret.Data != nil {
-			imSecret.username = string(secret.Data["username"])
-			imSecret.password = string(secret.Data["password"])
-			imSecret.realm = string(secret.Data["realm"])
-			imSecret.client_id = string(secret.Data["client_id"])
-			imSecret.client_secret = string(secret.Data["client_secret"])
-			imSecret.certificate = string(secret.Data["certificate"])
+			username := string(secret.Data["username"])
+			if len(username) < secretAccessInfoLength {
+				imSecret.username = username
+			} else {
+				return imSecret, fmt.Errorf("username length exceeds the limitation")
+			}
+
+			password := string(secret.Data["password"])
+			if len(password) < secretAccessInfoLength {
+				imSecret.password = password
+			} else {
+				return imSecret, fmt.Errorf("password length exceeds the limitation")
+			}
+
+			realm := string(secret.Data["realm"])
+			if len(realm) < secretAccessInfoLength {
+				imSecret.realm = realm
+			} else {
+				return imSecret, fmt.Errorf("realm length exceeds the limitation")
+			}
+
+			client_id := string(secret.Data["client_id"])
+			if len(client_id) < secretAccessInfoLength {
+				imSecret.client_id = client_id
+			} else {
+				return imSecret, fmt.Errorf("client_id length exceeds the limitation")
+			}
+
+			client_secret := string(secret.Data["client_secret"])
+			if len(client_secret) < secretAccessInfoLength {
+				imSecret.client_secret = client_secret
+			} else {
+				return imSecret, fmt.Errorf("client_secret length exceeds the limitation")
+			}
 		}
 	}
 	return imSecret, nil

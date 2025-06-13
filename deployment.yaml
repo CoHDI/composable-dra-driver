@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: cdi-dra
+  name: cdi-dra
+  namespace: composable-dra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cdi-dra
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: cdi-dra
+    spec:
+      serviceAccountName: cdi-dra
+      hostAliases:
+      - ip: "127.0.0.1"
+        hostnames:
+        - "test.endpoint.com"
+      containers:
+      - image: docker.io/library/cdi-dra
+        imagePullPolicy: IfNotPresent
+        name: cdi-dra-ccfsv
+        command: ["/cdi_dra"]
+        args:
+          - "-v"
+          - "-4"
+        env:
+        - name: CDI_ENDPOINT
+          value: "test.endpoint.com"
+        - name: TENANT_ID
+          value: "test"
+        - name: CLUSTER_ID
+          value: "test"
+        - name: USE_CAPI_BMH
+          value: "false"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cdi-dra
+  namespace: composable-dra
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cdi-dra
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch", "update", "patch"]
+- apiGroups: ["resource.k8s.io"]
+  resources: ["resourceslices"]
+  verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cdi-dra-binding
+subjects:
+- kind: ServiceAccount
+  name: cdi-dra
+  namespace: composable-dra
+roleRef:
+  kind: ClusterRole
+  name: cdi-dra
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cdi-dra
+  namespace: composable-dra
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cdi-dra-binding
+  namespace: composable-dra
+subjects:
+- kind: ServiceAccount
+  name: cdi-dra
+  namespace: composable-dra
+roleRef:
+  kind: Role
+  name: cdi-dra
+  apiGroup: rbac.authorization.k8s.io

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 
 	"k8s.io/utils/ptr"
@@ -38,25 +39,19 @@ func buildTestCDIClient(t testing.TB, tenantID string, clusterID string) (*CDICl
 }
 
 func TestCDIClientGetIMToken(t *testing.T) {
-	server, certPem := CreateTLSServer(t)
-	server.StartTLS()
-	defer server.Close()
-	parsedURL, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatalf("failed to parse URL: %v", err)
-	}
-
 	testCases := []struct {
-		name          string
-		password      string
-		certificate   string
-		expectedToken *IMToken
-		expectedErr   bool
+		name           string
+		password       string
+		realm          string
+		certificate    string
+		expectedToken  *IMToken
+		expectedErr    bool
+		expectedErrMsg string
 	}{
 		{
-			name:        "When get IM token with a correct password",
-			password:    "pass",
-			certificate: certPem,
+			name:     "When getting IM token with a correct password",
+			password: "pass",
+			realm:    "CDI_DRA_Test",
 			expectedToken: &IMToken{
 				AccessToken:      "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":775710000}`)),
 				ExpiresIn:        1,
@@ -70,35 +65,46 @@ func TestCDIClientGetIMToken(t *testing.T) {
 			},
 			expectedErr: false,
 		},
+		{
+			name:           "When provided a invalid password",
+			password:       "invalid-pass",
+			realm:          "CDI_DRA_Test",
+			expectedErr:    true,
+			expectedErrMsg: "received unsuccessful response",
+		},
+		{
+			name:           "When provided a invalid realm",
+			password:       "pass",
+			realm:          "invalid-charactor-#$%&\t\n",
+			expectedErr:    true,
+			expectedErrMsg: "received unsuccessful response",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			secret := config.CreateSecret(tc.certificate)
-			testConfig := ku.TestConfig{
-				Secret: secret,
-			}
-			controllers, stop := ku.MustCreateKubeControllers(t, &testConfig)
+			tenantID := "0001"
+			clusterID := "0001"
+			client, server, stop := buildTestCDIClient(t, tenantID, clusterID)
 			defer stop()
-			config := &config.Config{
-				CDIEndpoint: parsedURL.Host,
-			}
-			client, err := BuildCDIClient(config, controllers)
-			if err != nil {
-				t.Fatalf("failed to build cdi client: %v", err)
-			}
+			defer server.Close()
+
 			idManagerSecret := idManagerSecret{
 				username:      "user",
 				password:      tc.password,
-				realm:         "CDI_DRA_Test",
+				realm:         tc.realm,
 				client_id:     "0001",
 				client_secret: "secret",
-				certificate:   tc.certificate,
 			}
-
-			imToken, err := client.GetIMToken(context.Background(), idManagerSecret)
+			ctx := context.WithValue(context.Background(), RequestIDKey{}, "test")
+			imToken, err := client.GetIMToken(ctx, idManagerSecret)
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Errorf("expected error, but got none")
+				}
+				if !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error: %v", err)
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
