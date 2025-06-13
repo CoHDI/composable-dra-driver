@@ -9,7 +9,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,10 +36,16 @@ func newApp() *cli.App {
 		},
 		&cli.DurationFlag{
 			Name:        "scan-interval",
-			Usage:       "How often CDI resource pool is checked for renewing ResourceSlice",
+			Usage:       "How often CDI resource pool is checked for renewing ResourceSlice. Its format can be set as XXhYYmZZs.",
 			Destination: &config.ScanInterval,
 			EnvVars:     []string{"SCAN_INTERVAL"},
 			Value:       1 * time.Minute,
+			Action: func(ctx *cli.Context, scanInterval time.Duration) error {
+				if scanInterval <= 0*time.Second || 86400*time.Second <= scanInterval {
+					return fmt.Errorf("scan interval must be set from 0s to 86400s")
+				}
+				return nil
+			},
 		},
 		&cli.StringFlag{
 			Name:        "tenant-id",
@@ -45,6 +53,13 @@ func newApp() *cli.App {
 			Required:    true,
 			Destination: &config.TenantID,
 			EnvVars:     []string{"TENANT_ID"},
+			Action: func(ctx *cli.Context, tenantId string) error {
+				r := regexp.MustCompile("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$")
+				if !r.MatchString(tenantId) {
+					return fmt.Errorf("tenant id must be set as uuid format")
+				}
+				return nil
+			},
 		},
 		&cli.StringFlag{
 			Name:        "cluster-id",
@@ -52,6 +67,13 @@ func newApp() *cli.App {
 			Required:    true,
 			Destination: &config.ClusterID,
 			EnvVars:     []string{"CLUSTER_ID"},
+			Action: func(ctx *cli.Context, clusterId string) error {
+				r := regexp.MustCompile("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
+				if !r.MatchString(clusterId) {
+					return fmt.Errorf("cluster id must be set as uuid format")
+				}
+				return nil
+			},
 		},
 		&cli.StringFlag{
 			Name:        "cdi-endpoint",
@@ -59,6 +81,17 @@ func newApp() *cli.App {
 			Required:    true,
 			Destination: &config.CDIEndpoint,
 			EnvVars:     []string{"CDI_ENDPOINT"},
+			Action: func(ctx *cli.Context, endpoint string) error {
+				if len(endpoint) > 1000 {
+					return fmt.Errorf("cdi endpoint length must be set within 1000 bytes")
+				}
+				if !strings.HasPrefix(endpoint, "https://") {
+					return fmt.Errorf("cdi endpoint format must be set starting https://")
+				} else {
+					config.CDIEndpoint = strings.TrimPrefix(endpoint, "https://")
+				}
+				return nil
+			},
 		},
 		&cli.BoolFlag{
 			Name:        "use-capi-bmh",
@@ -72,12 +105,10 @@ func newApp() *cli.App {
 			Usage:   "Timeout in seconds (default: 600) for BindingTimeoutSeconds in ResourceSlice when enable DRADeviceBindingConditions. It must be set from 0 to 86400",
 			EnvVars: []string{"BINDING_TIMEOUT_SEC"},
 			Action: func(ctx *cli.Context, timeout int64) error {
-				if ctx.IsSet("binding-timeout") {
-					if 0 <= timeout && timeout <= 86400 {
-						config.BindingTimout = &timeout
-					} else {
-						return fmt.Errorf("binding timeout must be set from 0 to 86400")
-					}
+				if timeout <= 0 || 86400 <= timeout {
+					return fmt.Errorf("binding timeout must be set from 0 to 86400")
+				} else {
+					config.BindingTimout = &timeout
 				}
 				return nil
 			},

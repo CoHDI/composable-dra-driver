@@ -156,7 +156,12 @@ func BuildCDIClient(config *config.Config, kc *kube_utils.KubeControllers) (*CDI
 	}
 	var cert []byte
 	if secret.Data != nil {
-		cert = secret.Data["certificate"]
+		certificate := secret.Data["certificate"]
+		if len(certificate) < secretCertificateLength {
+			cert = secret.Data["certificate"]
+		} else {
+			return nil, fmt.Errorf("certificate length exceeds the limitation")
+		}
 	}
 	caCertPool := x509.NewCertPool()
 	caCertPool.AppendCertsFromPEM(cert)

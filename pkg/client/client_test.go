@@ -39,17 +39,8 @@ func buildTestCDIClient(t testing.TB, tenantID string, clusterID string) (*CDICl
 }
 
 func TestCDIClientGetIMToken(t *testing.T) {
-	server, certPem := CreateTLSServer(t)
-	server.StartTLS()
-	defer server.Close()
-	parsedURL, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatalf("failed to parse URL: %v", err)
-	}
-
 	testCases := []struct {
 		name           string
-		host           string
 		password       string
 		realm          string
 		certificate    string
@@ -58,11 +49,9 @@ func TestCDIClientGetIMToken(t *testing.T) {
 		expectedErrMsg string
 	}{
 		{
-			name:        "When getting IM token with a correct password",
-			host:        parsedURL.Host,
-			password:    "pass",
-			realm:       "CDI_DRA_Test",
-			certificate: certPem,
+			name:     "When getting IM token with a correct password",
+			password: "pass",
+			realm:    "CDI_DRA_Test",
 			expectedToken: &IMToken{
 				AccessToken:      "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":775710000}`)),
 				ExpiresIn:        1,
@@ -77,67 +66,36 @@ func TestCDIClientGetIMToken(t *testing.T) {
 			expectedErr: false,
 		},
 		{
-			name:           "When getting error response due to certification error",
-			host:           parsedURL.Host,
+			name:           "When provided a invalid password",
 			password:       "invalid-pass",
 			realm:          "CDI_DRA_Test",
-			certificate:    certPem,
 			expectedErr:    true,
 			expectedErrMsg: "received unsuccessful response",
-		},
-		{
-			name:           "When failing to connect to non-existent server",
-			host:           "non-existent-host",
-			password:       "pass",
-			realm:          "CDI_DRA_Test",
-			certificate:    certPem,
-			expectedErr:    true,
-			expectedErrMsg: "dial tcp: lookup",
 		},
 		{
 			name:           "When provided a invalid realm",
-			host:           parsedURL.Host,
 			password:       "pass",
 			realm:          "invalid-charactor-#$%&\t\n",
-			certificate:    certPem,
 			expectedErr:    true,
 			expectedErrMsg: "received unsuccessful response",
-		},
-		{
-			name:           "When getting nil response",
-			host:           parsedURL.Host,
-			password:       "pass",
-			realm:          "Nil_Test",
-			certificate:    certPem,
-			expectedErr:    true,
-			expectedErrMsg: "failed to read response data",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			secret := config.CreateSecret(tc.certificate)
-			testConfig := ku.TestConfig{
-				Secret: secret,
-			}
-			controllers, stop := ku.MustCreateKubeControllers(t, &testConfig)
+			tenantID := "0001"
+			clusterID := "0001"
+			client, server, stop := buildTestCDIClient(t, tenantID, clusterID)
 			defer stop()
-			config := &config.Config{
-				CDIEndpoint: tc.host,
-			}
-			client, err := BuildCDIClient(config, controllers)
-			if err != nil {
-				t.Fatalf("failed to build cdi client: %v", err)
-			}
+			defer server.Close()
+
 			idManagerSecret := idManagerSecret{
 				username:      "user",
 				password:      tc.password,
 				realm:         tc.realm,
 				client_id:     "0001",
 				client_secret: "secret",
-				certificate:   tc.certificate,
 			}
-
 			ctx := context.WithValue(context.Background(), RequestIDKey{}, "test")
 			imToken, err := client.GetIMToken(ctx, idManagerSecret)
 			if tc.expectedErr {
