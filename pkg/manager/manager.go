@@ -502,17 +502,70 @@ func (m *CDIManager) updatePool(driverName string, poolName string, device *devi
 	var generation int64 = 1
 	pool := m.namedDriverResources[driverName].Pools[poolName]
 	if len(pool.Slices) == 0 {
-		m.namedDriverResources[driverName].Pools[poolName] = generatePool(device, fabricID, generation)
+		m.namedDriverResources[driverName].Pools[poolName] = m.generatePool(device, fabricID, generation)
 		return true
 	} else {
 		if len(pool.Slices[0].Devices) != device.availableDeviceCount {
 			generation = pool.Generation
 			generation++
-			m.namedDriverResources[driverName].Pools[poolName] = generatePool(device, fabricID, generation)
+			m.namedDriverResources[driverName].Pools[poolName] = m.generatePool(device, fabricID, generation)
 			return true
 		}
 	}
 	return false
+}
+
+func (m *CDIManager) generatePool(device *device, fabricID int, generation int64) resourceslice.Pool {
+	var devices []resourceapi.Device
+	for i := 0; i < device.availableDeviceCount; i++ {
+		d := resourceapi.Device{
+			Name: fmt.Sprintf("%s-gpu%d", device.k8sDeviceName, i),
+			Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
+				"type": {
+					StringValue: ptr.To(GpuDeviceType),
+				},
+			},
+			UsageRestrictedToNode:    ptr.To(true),
+			BindingConditions:        []string{"FabricDeviceReady"},
+			BindingFailureConditions: []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
+			BindingTimeoutSeconds:    device.bindingTimeout,
+		}
+		for key, value := range device.draAttributes {
+			d.Attributes[resourceapi.QualifiedName(key)] = resourceapi.DeviceAttribute{StringValue: ptr.To(value)}
+		}
+		devices = append(devices, d)
+	}
+	pool := resourceslice.Pool{
+		NodeSelector: &corev1.NodeSelector{
+			NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{
+					MatchExpressions: []corev1.NodeSelectorRequirement{
+						{
+							Key:      m.labelPrefix + "/" + device.k8sDeviceName,
+							Operator: corev1.NodeSelectorOpIn,
+							Values: []string{
+								"true",
+							},
+						},
+						{
+							Key:      m.labelPrefix + "/" + "fabric",
+							Operator: corev1.NodeSelectorOpIn,
+							Values: []string{
+								strconv.Itoa(fabricID),
+							},
+						},
+					},
+				},
+			},
+		},
+		Slices: []resourceslice.Slice{
+			{
+				Devices: devices,
+			},
+		},
+		Generation: generation,
+	}
+	return pool
 }
 
 func (m *CDIManager) manageCDINodeLabel(ctx context.Context, machines []*machine) error {
@@ -575,59 +628,6 @@ func getFabricID(mList *client.FMMachineList, muuid string) (fabricID *int) {
 		}
 	}
 	return nil
-}
-
-func generatePool(device *device, fabricID int, generation int64) resourceslice.Pool {
-	var devices []resourceapi.Device
-	for i := 0; i < device.availableDeviceCount; i++ {
-		d := resourceapi.Device{
-			Name: fmt.Sprintf("%s-gpu%d", device.k8sDeviceName, i),
-			Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
-				"type": {
-					StringValue: ptr.To(GpuDeviceType),
-				},
-			},
-			UsageRestrictedToNode:    ptr.To(true),
-			BindingConditions:        []string{"FabricDeviceReady"},
-			BindingFailureConditions: []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
-			BindingTimeoutSeconds:    device.bindingTimeout,
-		}
-		for key, value := range device.draAttributes {
-			d.Attributes[resourceapi.QualifiedName(key)] = resourceapi.DeviceAttribute{StringValue: ptr.To(value)}
-		}
-		devices = append(devices, d)
-	}
-	pool := resourceslice.Pool{
-		NodeSelector: &corev1.NodeSelector{
-			NodeSelectorTerms: []corev1.NodeSelectorTerm{
-				{
-					MatchExpressions: []corev1.NodeSelectorRequirement{
-						{
-							Key:      device.k8sDeviceName,
-							Operator: corev1.NodeSelectorOpIn,
-							Values: []string{
-								"true",
-							},
-						},
-						{
-							Key:      "fabric",
-							Operator: corev1.NodeSelectorOpIn,
-							Values: []string{
-								strconv.Itoa(fabricID),
-							},
-						},
-					},
-				},
-			},
-		},
-		Slices: []resourceslice.Slice{
-			{
-				Devices: devices,
-			},
-		},
-		Generation: generation,
-	}
-	return pool
 }
 
 func safeReference(ptr *int) string {

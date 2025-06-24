@@ -19,6 +19,10 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+const (
+	uuidFormat = "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$"
+)
+
 func main() {
 	if err := newApp().Run(os.Args); err != nil {
 		slog.Error("Command Failed", "error", err)
@@ -54,7 +58,7 @@ func newApp() *cli.App {
 			Destination: &config.TenantID,
 			EnvVars:     []string{"TENANT_ID"},
 			Action: func(ctx *cli.Context, tenantId string) error {
-				r := regexp.MustCompile("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$")
+				r := regexp.MustCompile(uuidFormat)
 				if !r.MatchString(tenantId) {
 					return fmt.Errorf("tenant id must be set as uuid format")
 				}
@@ -68,7 +72,7 @@ func newApp() *cli.App {
 			Destination: &config.ClusterID,
 			EnvVars:     []string{"CLUSTER_ID"},
 			Action: func(ctx *cli.Context, clusterId string) error {
-				r := regexp.MustCompile("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
+				r := regexp.MustCompile(uuidFormat)
 				if !r.MatchString(clusterId) {
 					return fmt.Errorf("cluster id must be set as uuid format")
 				}

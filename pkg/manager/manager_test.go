@@ -126,6 +126,7 @@ func createTestManager(t testing.TB, useCapiBmh bool, nodeCount int) (*CDIManage
 		cdiClient:            cdiClient,
 		kubecontrollers:      kc,
 		useCapiBmh:           useCapiBmh,
+		labelPrefix:          "infra-dds.com",
 	}, server, stop
 
 }
@@ -497,6 +498,82 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 	}
 }
 
+func TestCDIManagerGeneratePool(t *testing.T) {
+	testCases := []struct {
+		name                 string
+		useCapiBmh           bool
+		nodeCount            int
+		k8sDeviceName        string
+		draAttributes        map[string]string
+		availableDeviceCount int
+		bindingTimeout       *int64
+		expectedDeviceName   string
+		expectedLabel        string
+	}{
+		{
+			name:          "When correctly provided device",
+			useCapiBmh:    false,
+			nodeCount:     1,
+			k8sDeviceName: "nvidia-a100-40g",
+			draAttributes: map[string]string{
+				"productName": "NVIDIA A100 40GB PCIe",
+			},
+			availableDeviceCount: 3,
+			bindingTimeout:       ptr.To(int64(600)),
+			expectedDeviceName:   "nvidia-a100-40g-gpu0",
+			expectedLabel:        "infra-dds.com/nvidia-a100-40g",
+		},
+		{
+			name:          "When bindingTimeout is nil",
+			useCapiBmh:    false,
+			nodeCount:     1,
+			k8sDeviceName: "nvidia-a100-40g",
+			draAttributes: map[string]string{
+				"productName": "NVIDIA A100 40GB PCIe",
+			},
+			availableDeviceCount: 3,
+			bindingTimeout:       nil,
+			expectedDeviceName:   "nvidia-a100-40g-gpu0",
+			expectedLabel:        "infra-dds.com/nvidia-a100-40g",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, server, stop := createTestManager(t, tc.useCapiBmh, tc.nodeCount)
+			defer stop()
+			defer server.Close()
+
+			device := &device{
+				k8sDeviceName:        tc.k8sDeviceName,
+				draAttributes:        tc.draAttributes,
+				availableDeviceCount: tc.availableDeviceCount,
+				bindingTimeout:       tc.bindingTimeout,
+			}
+			fabricID := 1
+			generation := 0
+			pool := m.generatePool(device, fabricID, int64(generation))
+
+			if len(pool.Slices[0].Devices) > 0 {
+				devices := pool.Slices[0].Devices
+				if devices[0].Name != tc.expectedDeviceName {
+					t.Errorf("unexpected device name in generated pool, expected %s but got %s", tc.expectedDeviceName, devices[0].Name)
+				}
+				foundLabel := false
+				for _, selctorTerms := range pool.NodeSelector.NodeSelectorTerms {
+					for _, exprs := range selctorTerms.MatchExpressions {
+						if exprs.Key == tc.expectedLabel {
+							foundLabel = true
+						}
+					}
+				}
+				if !foundLabel {
+					t.Errorf("expected nodeSelector is not set, expected label: %s", tc.expectedLabel)
+				}
+			}
+		})
+	}
+}
+
 func TestGetFabricID(t *testing.T) {
 	testCases := []struct {
 		name             string
@@ -552,58 +629,6 @@ func TestGetFabricID(t *testing.T) {
 					if tc.expectedFabricID != nil {
 						t.Errorf("unexpected fabric id, expected %d but got nil", *tc.expectedFabricID)
 					}
-				}
-			}
-		})
-	}
-}
-
-func TestGeneratePool(t *testing.T) {
-	testCases := []struct {
-		name                 string
-		k8sDeviceName        string
-		draAttributes        map[string]string
-		availableDeviceCount int
-		bindingTimeout       *int64
-		expectedDeviceName   string
-	}{
-		{
-			name:          "When correctly provided device",
-			k8sDeviceName: "nvidia-a100-40G",
-			draAttributes: map[string]string{
-				"productName": "NVIDIA A100 40GB PCIe",
-			},
-			availableDeviceCount: 3,
-			bindingTimeout:       ptr.To(int64(600)),
-			expectedDeviceName:   "nvidia-a100-40G-gpu0",
-		},
-		{
-			name:          "When bindingTimeout is nil",
-			k8sDeviceName: "nvidia-a100-40G",
-			draAttributes: map[string]string{
-				"productName": "NVIDIA A100 40GB PCIe",
-			},
-			availableDeviceCount: 3,
-			bindingTimeout:       nil,
-			expectedDeviceName:   "nvidia-a100-40G-gpu0",
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			device := &device{
-				k8sDeviceName:        tc.k8sDeviceName,
-				draAttributes:        tc.draAttributes,
-				availableDeviceCount: tc.availableDeviceCount,
-				bindingTimeout:       tc.bindingTimeout,
-			}
-			fabricID := 1
-			generation := 0
-			pool := generatePool(device, fabricID, int64(generation))
-
-			if len(pool.Slices[0].Devices) > 0 {
-				gotDeviceName := pool.Slices[0].Devices[0].Name
-				if gotDeviceName != tc.expectedDeviceName {
-					t.Errorf("unexpected device name in generated pool, expected %s but got %s", tc.expectedDeviceName, gotDeviceName)
 				}
 			}
 		})
