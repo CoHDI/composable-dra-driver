@@ -10,10 +10,13 @@ require (
 	k8s.io/apimachinery v0.33.1
 	k8s.io/client-go v0.33.1
 	k8s.io/dynamic-resource-allocation v0.26.0-beta.0.0.20250523224021-fc53d97296e9
-	k8s.io/utils v0.0.0-20250502105355-0f33e8f1c979
+	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397
 )
 
-require sigs.k8s.io/randfill v1.0.0 // indirect
+require (
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	sigs.k8s.io/randfill v1.0.0 // indirect
+)
 
 require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
@@ -32,7 +35,7 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
-	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
