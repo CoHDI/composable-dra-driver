@@ -1,4 +1,4 @@
-# Contributing to InfraDDS
+# Contributing to CoHDI
 
 Welcome! We are glad that you want to contribute to our Cozystack project! 💖
 
