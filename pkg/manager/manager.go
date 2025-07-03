@@ -318,10 +318,7 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 	}
 
 	// Update ResourceSlice using machineInfos
-	err = m.manageCDIResourceSlices(machines, controllers)
-	if err != nil {
-		return err
-	}
+	m.manageCDIResourceSlices(machines, controllers)
 
 	// Add labels to Node
 	err = m.manageCDINodeLabel(ctx, machines)
@@ -465,40 +462,33 @@ func (m *CDIManager) getMinMaxNums(ctx context.Context, muuid string, modelName 
 	return min, max, nil
 }
 
-func (m *CDIManager) manageCDIResourceSlices(machines []*machine, controlles map[string]*resourceslice.Controller) error {
+func (m *CDIManager) manageCDIResourceSlices(machines []*machine, controlles map[string]*resourceslice.Controller) {
 	needUpdate := make(map[string]bool)
-	for driverName := range m.namedDriverResources {
-		fabricFound := make(map[int]bool)
-		for _, machine := range machines {
-			if !fabricFound[*machine.fabricID] {
-				for _, device := range machine.deviceList {
-					if device.driverName == driverName {
-						poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(*machine.fabricID)
-						updated := m.updatePool(driverName, poolName, device, *machine.fabricID)
-						if updated {
-							needUpdate[driverName] = true
-						}
+	fabricFound := make(map[int]bool)
+	for _, machine := range machines {
+		if !fabricFound[*machine.fabricID] {
+			for _, device := range machine.deviceList {
+				if _, exist := m.namedDriverResources[device.driverName]; exist {
+					poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(*machine.fabricID)
+					updated := m.updatePool(device.driverName, poolName, device, *machine.fabricID)
+					if updated {
+						slog.Info("pool update needed", "poolName", poolName, "generation", m.namedDriverResources[device.driverName].Pools[poolName].Generation, "driver", device.driverName)
+						needUpdate[device.driverName] = true
 					}
 				}
-				fabricFound[*machine.fabricID] = true
 			}
+			fabricFound[*machine.fabricID] = true
 		}
 	}
 	for driverName, driverResources := range m.namedDriverResources {
 		if needUpdate[driverName] {
-			for poolName, pool := range driverResources.Pools {
-				slog.Info("pool update to renew ResourceSlice", "poolName", poolName, "generation", pool.Generation)
-			}
 			c := controlles[driverName]
 			c.Update(driverResources)
 		}
 	}
-
-	return nil
 }
 
 func (m *CDIManager) updatePool(driverName string, poolName string, device *device, fabricID int) (updated bool) {
-	// m.namedDriverResources[driverName].Pools[poolName] = generatePool(device, fabricID)
 	var generation int64 = 1
 	pool := m.namedDriverResources[driverName].Pools[poolName]
 	if len(pool.Slices) == 0 {
