@@ -42,7 +42,7 @@ func createTestCACertificate() (certData, error) {
 
 	subjectCa := pkix.Name{
 		CommonName:         "ca-composable-dra-dds-test",
-		OrganizationalUnit: []string{"InfraDDS"},
+		OrganizationalUnit: []string{"CoHDI"},
 		Organization:       []string{"composable-dra-dds"},
 		Country:            []string{"JP"},
 	}
@@ -87,7 +87,7 @@ func createTestServerCertificate(caCertData certData) (certPEMBlock, keyPEMBlock
 
 	subjectServer := pkix.Name{
 		CommonName:         "server-composable-dra-dds-test",
-		OrganizationalUnit: []string{"InfraDDS"},
+		OrganizationalUnit: []string{"CoHDI"},
 		Organization:       []string{"composable-dra-dds"},
 		Country:            []string{"JP"},
 	}
