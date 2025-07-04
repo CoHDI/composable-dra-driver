@@ -22,10 +22,12 @@ func buildTestCDIClient(t testing.TB, tenantID string, clusterID string) (*CDICl
 		t.Fatalf("failed to parse URL: %v", err)
 	}
 	secret := config.CreateSecret(certPem)
-	testConfig := ku.TestConfig{
+	testConfig := &config.TestConfig{
 		Secret: secret,
 	}
-	controllers, stop := ku.MustCreateKubeControllers(t, &testConfig)
+
+	kubeclient, dynamicclient := ku.CreateTestClient(t, testConfig)
+	controllers, stop := ku.CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
 	config := &config.Config{
 		CDIEndpoint: parsedURL.Host,
 		TenantID:    tenantID,

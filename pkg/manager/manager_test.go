@@ -20,21 +20,15 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
-	fakekube "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/dynamic-resource-allocation/resourceslice"
 	"k8s.io/utils/ptr"
 )
 
 const (
-	nodeCount    = 9
 	fabricIdNum  = 3
 	nodeGroupNum = 3
 )
-
-type testSpec struct {
-	useCapiBmh bool
-}
 
 func createDeviceInfos() []config.DeviceInfo {
 	devInfo1 := config.DeviceInfo{
@@ -104,26 +98,27 @@ func createTestDriverResources() map[string]*resourceslice.DriverResources {
 	return ndr
 }
 
-func createTestManager(t testing.TB, testSpec testSpec) (*CDIManager, *httptest.Server, ku.TestControllerShutdownFunc) {
-	//kubeObjects := make([]runtime.Object, 0)
-	coreClient := fakekube.NewSimpleClientset()
-	coreClient.PrependReactor("create", "resourceslices", createResourceSliceCreateReactor())
+func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *httptest.Server, ku.TestControllerShutdownFunc) {
 	ndr := createTestDriverResources()
 
 	server, certPem := client.CreateTLSServer(t)
 	server.StartTLS()
 
 	secret := config.CreateSecret(certPem)
-	testConfig := &ku.TestConfig{
+	testConfig := &config.TestConfig{
+		Spec:     testSpec,
 		Secret:   secret,
-		Nodes:    make([]*v1.Node, nodeCount),
-		Machines: make([]*unstructured.Unstructured, nodeCount),
-		BMHs:     make([]*unstructured.Unstructured, nodeCount),
+		Nodes:    make([]*v1.Node, config.TestNodeCount),
+		Machines: make([]*unstructured.Unstructured, config.TestNodeCount),
+		BMHs:     make([]*unstructured.Unstructured, config.TestNodeCount),
 	}
-	for i := 0; i < nodeCount; i++ {
-		testConfig.Nodes[i], testConfig.BMHs[i], testConfig.Machines[i] = ku.CreateNodeBMHMachines(i, "test-namespace", testSpec.useCapiBmh)
+	for i := 0; i < config.TestNodeCount; i++ {
+		testConfig.Nodes[i], testConfig.BMHs[i], testConfig.Machines[i] = ku.CreateNodeBMHMachines(i, "test-namespace", testConfig.Spec.UseCapiBmh)
 	}
-	kc, stop := ku.MustCreateKubeControllers(t, testConfig)
+
+	kubeclient, dynamicclient := ku.CreateTestClient(t, testConfig)
+	kubeclient.PrependReactor("create", "resourceslices", createResourceSliceCreateReactor())
+	kc, stop := ku.CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
 
 	parsedURL, err := url.Parse(server.URL)
 	if err != nil {
@@ -140,13 +135,13 @@ func createTestManager(t testing.TB, testSpec testSpec) (*CDIManager, *httptest.
 	}
 
 	return &CDIManager{
-		coreClient:           coreClient,
-		discoveryClient:      ku.CreateDiscoveryClient(true),
+		coreClient:           kubeclient,
+		discoveryClient:      kubeclient.Discovery(),
 		namedDriverResources: ndr,
 		cdiClient:            cdiClient,
 		kubecontrollers:      kc,
-		useCapiBmh:           testSpec.useCapiBmh,
-		labelPrefix:          "infra-dds.com",
+		useCapiBmh:           testSpec.UseCapiBmh,
+		labelPrefix:          "cohdi.com",
 	}, server, stop
 
 }
@@ -168,9 +163,9 @@ func createResourceSliceCreateReactor() func(action k8stesting.Action) (handled 
 
 func createTestMachines(availableDeviceCount int) []*machine {
 	var machines []*machine
-	for i := 0; i < nodeCount; i++ {
+	for i := 0; i < config.TestNodeCount; i++ {
 		machine := &machine{
-			nodeName:      "test-machine-" + strconv.Itoa(i+1),
+			nodeName:      "test-node-" + strconv.Itoa(i),
 			fabricID:      ptr.To((i % fabricIdNum) + 1),
 			nodeGroupUUID: strconv.Itoa((i / nodeGroupNum) + 1),
 		}
@@ -189,6 +184,8 @@ func createTestDeviceList(availableNum int) deviceList {
 				"productName": "TEST DEVICE 1",
 			},
 			availableDeviceCount: availableNum,
+			minDeviceCount:       ptr.To(1),
+			maxDeviceCount:       ptr.To(6),
 		},
 		"DEVICE 2": &device{
 			k8sDeviceName:        "test-device-2",
@@ -237,8 +234,9 @@ func createTestControllers(t testing.TB, kubeClitent kubernetes.Interface) map[s
 }
 
 func TestCDIManagerStartResourceSliceController(t *testing.T) {
-	testSpec := testSpec{
-		useCapiBmh: true,
+	testSpec := config.TestSpec{
+		UseCapiBmh: true,
+		DRAenabled: true,
 	}
 	m, _, stop := createTestManager(t, testSpec)
 	defer stop()
@@ -346,8 +344,9 @@ func TestCDIManagerGetMachineUUID(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			testSpec := testSpec{
-				useCapiBmh: tc.useCapiBmh,
+			testSpec := config.TestSpec{
+				UseCapiBmh: tc.useCapiBmh,
+				DRAenabled: true,
 			}
 			m, _, stop := createTestManager(t, testSpec)
 			defer stop()
@@ -382,8 +381,9 @@ func TestCDIManagerGetMachineList(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			testSpec := testSpec{
-				useCapiBmh: tc.useCapiBmh,
+			testSpec := config.TestSpec{
+				UseCapiBmh: tc.useCapiBmh,
+				DRAenabled: true,
 			}
 			m, server, stop := createTestManager(t, testSpec)
 			defer stop()
@@ -427,8 +427,9 @@ func TestCDIManagerGetAvailableNums(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			testSpec := testSpec{
-				useCapiBmh: tc.useCapiBmh,
+			testSpec := config.TestSpec{
+				UseCapiBmh: tc.useCapiBmh,
+				DRAenabled: true,
 			}
 			m, server, stop := createTestManager(t, testSpec)
 			defer stop()
@@ -467,8 +468,9 @@ func TestCDIManagerGetNodeGroups(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			testSpec := testSpec{
-				useCapiBmh: tc.useCapiBmh,
+			testSpec := config.TestSpec{
+				UseCapiBmh: tc.useCapiBmh,
+				DRAenabled: true,
 			}
 			m, server, stop := createTestManager(t, testSpec)
 			defer stop()
@@ -513,8 +515,9 @@ func TestCDIManagerGetNodeGroupInfo(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			testSpec := testSpec{
-				useCapiBmh: tc.useCapiBmh,
+			testSpec := config.TestSpec{
+				UseCapiBmh: tc.useCapiBmh,
+				DRAenabled: true,
 			}
 			m, server, stop := createTestManager(t, testSpec)
 			defer stop()
@@ -563,8 +566,9 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			testSpec := testSpec{
-				useCapiBmh: tc.useCapiBmh,
+			testSpec := config.TestSpec{
+				UseCapiBmh: tc.useCapiBmh,
+				DRAenabled: true,
 			}
 			m, server, stop := createTestManager(t, testSpec)
 			defer stop()
@@ -634,8 +638,9 @@ func TestCDIManagerManageCDIResourceSlices(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			testSpec := testSpec{
-				useCapiBmh: false,
+			testSpec := config.TestSpec{
+				UseCapiBmh: false,
+				DRAenabled: true,
 			}
 			m, _, stop := createTestManager(t, testSpec)
 			defer stop()
@@ -730,8 +735,9 @@ func TestCDIManagerUpdatePool(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			testSpec := testSpec{
-				useCapiBmh: false,
+			testSpec := config.TestSpec{
+				UseCapiBmh: false,
+				DRAenabled: true,
 			}
 			m, _, stop := createTestManager(t, testSpec)
 			defer stop()
@@ -741,7 +747,6 @@ func TestCDIManagerUpdatePool(t *testing.T) {
 				poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(tc.fabricID)
 				var updated bool
 				if _, exist := m.namedDriverResources[device.driverName]; exist {
-					fmt.Println(device.driverName)
 					updated = m.updatePool(device.driverName, poolName, device, tc.fabricID)
 				}
 				if tc.expectedUpdated {
@@ -785,7 +790,7 @@ func TestCDIManagerGeneratePool(t *testing.T) {
 			availableDeviceCount: 3,
 			bindingTimeout:       ptr.To(int64(600)),
 			expectedDeviceName:   "nvidia-a100-40g-gpu0",
-			expectedLabel:        "infra-dds.com/nvidia-a100-40g",
+			expectedLabel:        "cohdi.com/nvidia-a100-40g",
 		},
 		{
 			name:          "When bindingTimeout is nil",
@@ -798,13 +803,14 @@ func TestCDIManagerGeneratePool(t *testing.T) {
 			availableDeviceCount: 3,
 			bindingTimeout:       nil,
 			expectedDeviceName:   "nvidia-a100-40g-gpu0",
-			expectedLabel:        "infra-dds.com/nvidia-a100-40g",
+			expectedLabel:        "cohdi.com/nvidia-a100-40g",
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			testSpec := testSpec{
-				useCapiBmh: tc.useCapiBmh,
+			testSpec := config.TestSpec{
+				UseCapiBmh: tc.useCapiBmh,
+				DRAenabled: true,
 			}
 			m, server, stop := createTestManager(t, testSpec)
 			defer stop()
@@ -835,6 +841,78 @@ func TestCDIManagerGeneratePool(t *testing.T) {
 				}
 				if !foundLabel {
 					t.Errorf("expected nodeSelector is not set, expected label: %s", tc.expectedLabel)
+				}
+			}
+		})
+	}
+}
+
+func TestCDIManagerManageCDINodeLabel(t *testing.T) {
+	testCases := []struct {
+		name              string
+		nodeName          string
+		deviceName        string
+		expectedFabric    string
+		expectedMaxDevice string
+		expectedMinDevice string
+		expectedErr       bool
+	}{
+		{
+			name:              "When correctly nodes labeled",
+			nodeName:          "test-node-0",
+			deviceName:        "test-device-1",
+			expectedFabric:    "1",
+			expectedMaxDevice: "6",
+			expectedMinDevice: "1",
+			expectedErr:       false,
+		},
+		{
+			name:              "When device min and max is nil",
+			nodeName:          "test-node-0",
+			deviceName:        "test-device-2",
+			expectedFabric:    "1",
+			expectedMaxDevice: "",
+			expectedMinDevice: "",
+			expectedErr:       false,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			testSpec := config.TestSpec{
+				UseCapiBmh: false,
+				DRAenabled: true,
+			}
+			m, _, stop := createTestManager(t, testSpec)
+			defer stop()
+			availableDevice := 3
+			machines := createTestMachines(availableDevice)
+
+			err := m.manageCDINodeLabel(context.Background(), machines)
+
+			if tc.expectedErr {
+				if err == nil {
+					t.Error("expected error, but got none")
+				}
+			} else if !tc.expectedErr {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				node, err := m.coreClient.CoreV1().Nodes().Get(context.Background(), tc.nodeName, metav1.GetOptions{})
+				if err != nil {
+					t.Fatalf("not found node, node name: %s", tc.nodeName)
+				}
+				if node != nil {
+					if node.Labels["cohdi.com/fabric"] != tc.expectedFabric {
+						t.Errorf("unexpected label of fabric id, expected %s but got %s", node.Labels["cohdi.com/fabric"], tc.expectedFabric)
+					}
+					maxLabel := fmt.Sprintf("cohdi.com/%s-size-max", tc.deviceName)
+					if node.Labels[maxLabel] != tc.expectedMaxDevice {
+						t.Errorf("unexpected label of max device num, expected %s but got %s", tc.expectedMaxDevice, node.Labels[maxLabel])
+					}
+					minLabel := fmt.Sprintf("cohdi.com/%s-size-min", tc.deviceName)
+					if node.Labels[minLabel] != tc.expectedMinDevice {
+						t.Errorf("unexpected label of min device num, expected %s but got %s", tc.expectedMinDevice, node.Labels[minLabel])
+					}
 				}
 			}
 		})

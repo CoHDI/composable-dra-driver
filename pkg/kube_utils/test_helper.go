@@ -1,6 +1,7 @@
 package kube_utils
 
 import (
+	"cdi_dra/pkg/config"
 	"fmt"
 	"testing"
 
@@ -9,22 +10,15 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/dynamic"
 	fakedynamic "k8s.io/client-go/dynamic/fake"
+	kube_client "k8s.io/client-go/kubernetes"
 	fakekube "k8s.io/client-go/kubernetes/fake"
 )
 
-type TestConfig struct {
-	ConfigMaps []*corev1.ConfigMap
-	Secret     *corev1.Secret
-	Nodes      []*corev1.Node
-	BMHs       []*unstructured.Unstructured
-	Machines   []*unstructured.Unstructured
-}
-
 type TestControllerShutdownFunc func()
 
-func MustCreateKubeControllers(t testing.TB, testConfig *TestConfig) (*KubeControllers, TestControllerShutdownFunc) {
+func CreateTestClient(t testing.TB, testConfig *config.TestConfig) (*fakekube.Clientset, *fakedynamic.FakeDynamicClient) {
 	objects := make([]runtime.Object, 0)
 	for i := range testConfig.ConfigMaps {
 		objects = append(objects, testConfig.ConfigMaps[i])
@@ -36,26 +30,8 @@ func MustCreateKubeControllers(t testing.TB, testConfig *TestConfig) (*KubeContr
 		objects = append(objects, testConfig.Nodes[i])
 	}
 
-	machineObjects := make([]runtime.Object, 0)
-	for _, machine := range testConfig.Machines {
-		if machine != nil {
-			machineObjects = append(machineObjects, machine)
-		}
-	}
-	for _, bmh := range testConfig.BMHs {
-		if bmh != nil {
-			machineObjects = append(machineObjects, bmh)
-		}
-	}
 	kubeclient := fakekube.NewSimpleClientset(objects...)
-	dynamicclient := fakedynamic.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{
-			{Group: Metal3APIGroup, Version: Metal3APIVersion, Resource: BareMetalHostResourceName}: "kindList",
-			{Group: MachineAPIGroup, Version: MachineAPIVersion, Resource: MachineResourceName}:     "kindList",
-		},
-		machineObjects...,
-	)
+
 	machineAPI := &metav1.APIResourceList{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: MachineAPIVersion,
@@ -79,30 +55,8 @@ func MustCreateKubeControllers(t testing.TB, testConfig *TestConfig) (*KubeContr
 		},
 	}
 	kubeclient.Fake.Resources = append(kubeclient.Fake.Resources, machineAPI, bmhAPI)
-	discoveryclient := kubeclient.Discovery()
 
-	stopCh := make(chan struct{})
-	var useCapiBmh bool
-	if len(testConfig.Machines) > 0 && len(testConfig.BMHs) > 0 {
-		useCapiBmh = true
-	}
-	controllers, err := CreateKubeControllers(kubeclient, dynamicclient, discoveryclient, useCapiBmh, stopCh)
-	if err != nil {
-		t.Fatal("failed to create test controller")
-	}
-	if err := controllers.Run(); err != nil {
-		t.Fatalf("failed to run controller: %v", err)
-	}
-
-	return controllers, func() {
-		close(stopCh)
-	}
-
-}
-
-func CreateDiscoveryClient(draEnabled bool) discovery.DiscoveryInterface {
-	fakeClient := fakekube.NewSimpleClientset()
-	if draEnabled {
+	if testConfig.Spec.DRAenabled {
 		resourceAPI := &metav1.APIResourceList{
 			TypeMeta: metav1.TypeMeta{
 				Kind:       ResourceSliceResourceName,
@@ -115,9 +69,47 @@ func CreateDiscoveryClient(draEnabled bool) discovery.DiscoveryInterface {
 				},
 			},
 		}
-		fakeClient.Fake.Resources = append(fakeClient.Fake.Resources, resourceAPI)
+		kubeclient.Fake.Resources = append(kubeclient.Fake.Resources, resourceAPI)
 	}
-	return fakeClient.Discovery()
+
+	machineObjects := make([]runtime.Object, 0)
+	for _, machine := range testConfig.Machines {
+		if machine != nil {
+			machineObjects = append(machineObjects, machine)
+		}
+	}
+	for _, bmh := range testConfig.BMHs {
+		if bmh != nil {
+			machineObjects = append(machineObjects, bmh)
+		}
+	}
+	dynamicclient := fakedynamic.NewSimpleDynamicClientWithCustomListKinds(
+		runtime.NewScheme(),
+		map[schema.GroupVersionResource]string{
+			{Group: Metal3APIGroup, Version: Metal3APIVersion, Resource: BareMetalHostResourceName}: "kindList",
+			{Group: MachineAPIGroup, Version: MachineAPIVersion, Resource: MachineResourceName}:     "kindList",
+		},
+		machineObjects...,
+	)
+
+	return kubeclient, dynamicclient
+}
+
+func CreateTestKubeControllers(t testing.TB, testConfig *config.TestConfig, kubeclient kube_client.Interface, dynamicclient dynamic.Interface) (*KubeControllers, TestControllerShutdownFunc) {
+	discoveryclient := kubeclient.Discovery()
+	stopCh := make(chan struct{})
+	controllers, err := CreateKubeControllers(kubeclient, dynamicclient, discoveryclient, testConfig.Spec.UseCapiBmh, stopCh)
+	if err != nil {
+		t.Fatal("failed to create test controller")
+	}
+	if err := controllers.Run(); err != nil {
+		t.Fatalf("failed to run controller: %v", err)
+	}
+
+	return controllers, func() {
+		close(stopCh)
+	}
+
 }
 
 func CreateNodeBMHMachines(num int, namespace string, useCapiBmh bool) (node *corev1.Node, bmh *unstructured.Unstructured, machine *unstructured.Unstructured) {
@@ -143,7 +135,8 @@ func CreateNodeBMHMachines(num int, namespace string, useCapiBmh bool) (node *co
 			Kind: "Node",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: fmt.Sprintf("test-node-%d", num),
+			Name:   fmt.Sprintf("test-node-%d", num),
+			Labels: map[string]string{},
 		},
 		Spec: corev1.NodeSpec{
 			ProviderID: fmt.Sprintf("test://test-providerid-%d", num),

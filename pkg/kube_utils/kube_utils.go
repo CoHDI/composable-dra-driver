@@ -226,6 +226,7 @@ func (kc *KubeControllers) GetNode(nodeName string) (*corev1.Node, error) {
 	}
 	if !exists {
 		slog.Warn("not exists node", "nodeName", nodeName)
+		return nil, nil
 	}
 	node, ok := obj.(*corev1.Node)
 	if !ok {
