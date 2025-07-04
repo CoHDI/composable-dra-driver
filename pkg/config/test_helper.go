@@ -4,7 +4,26 @@ import (
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
+
+const (
+	TestNodeCount = 9
+)
+
+type TestConfig struct {
+	Spec       TestSpec
+	ConfigMaps []*corev1.ConfigMap
+	Secret     *corev1.Secret
+	Nodes      []*corev1.Node
+	BMHs       []*unstructured.Unstructured
+	Machines   []*unstructured.Unstructured
+}
+
+type TestSpec struct {
+	UseCapiBmh bool
+	DRAenabled bool
+}
 
 func CreateConfigMap() ([]*corev1.ConfigMap, error) {
 	deviceInfos := []DeviceInfo{

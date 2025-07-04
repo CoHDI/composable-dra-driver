@@ -567,30 +567,31 @@ func (m *CDIManager) manageCDINodeLabel(ctx context.Context, machines []*machine
 		}
 		// Label for fabric
 		fabricLabelKey := m.labelPrefix + "/" + "fabric"
-		node.Labels[fabricLabelKey] = strconv.Itoa(*machine.fabricID)
-		slog.Debug("set labels for fabric", "nodeName", machine.nodeName, "label", fabricLabelKey+"="+node.Labels[fabricLabelKey])
-		// Label for the min and max number of devices
-		for _, device := range machine.deviceList {
-			if device.maxDeviceCount != nil {
-				maxLabelKey := m.labelPrefix + "/" + device.k8sDeviceName + "-size-max"
-				max := strconv.Itoa(*device.maxDeviceCount)
-				node.Labels[maxLabelKey] = max
-				slog.Debug("set labels for max of devices", "nodeName", machine.nodeName, "label", maxLabelKey+"="+max)
+		if node != nil {
+			node.Labels[fabricLabelKey] = strconv.Itoa(*machine.fabricID)
+			slog.Debug("set labels for fabric", "nodeName", machine.nodeName, "label", fabricLabelKey+"="+node.Labels[fabricLabelKey])
+			// Label for the min and max number of devices
+			for _, device := range machine.deviceList {
+				if device.maxDeviceCount != nil {
+					maxLabelKey := m.labelPrefix + "/" + device.k8sDeviceName + "-size-max"
+					max := strconv.Itoa(*device.maxDeviceCount)
+					node.Labels[maxLabelKey] = max
+					slog.Debug("set labels for max of devices", "nodeName", machine.nodeName, "label", maxLabelKey+"="+max)
+				}
+				if device.minDeviceCount != nil {
+					minLabelKey := m.labelPrefix + "/" + device.k8sDeviceName + "-size-min"
+					min := strconv.Itoa(*device.minDeviceCount)
+					node.Labels[minLabelKey] = min
+					slog.Debug("set labels for min of devices", "nodeName", machine.nodeName, "label", minLabelKey+"="+min)
+				}
 			}
-			if device.minDeviceCount != nil {
-				minLabelKey := m.labelPrefix + "/" + device.k8sDeviceName + "-size-min"
-				min := strconv.Itoa(*device.minDeviceCount)
-				node.Labels[minLabelKey] = min
-				slog.Debug("set labels for min of devices", "nodeName", machine.nodeName, "label", minLabelKey+"="+min)
+			_, err = m.coreClient.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
+			if err != nil {
+				slog.Error("failed to update node label", "nodeName", machine.nodeName)
+				return err
 			}
-		}
-
-		_, err = m.coreClient.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
-		if err != nil {
-			slog.Error("failed to update node label", "nodeName", machine.nodeName)
 		}
 	}
-
 	return nil
 }
 
