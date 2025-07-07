@@ -2,6 +2,7 @@ package config
 
 import (
 	"log/slog"
+	"math/rand"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -69,4 +70,14 @@ func GetLabelPrefix(cm *corev1.ConfigMap) (string, error) {
 	} else {
 		return labelPrefix, nil
 	}
+}
+
+const CharSet = "123456789"
+
+func RandomString(n int) string {
+	result := make([]byte, n)
+	for i := range result {
+		result[i] = CharSet[rand.Intn(len(CharSet))]
+	}
+	return string(result)
 }

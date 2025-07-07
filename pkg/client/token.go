@@ -1,6 +1,7 @@
 package client
 
 import (
+	"cdi_dra/pkg/config"
 	"cdi_dra/pkg/kube_utils"
 	"context"
 	"encoding/base64"
@@ -86,7 +87,7 @@ func (ts *idManagerTokenSource) Token() (*oauth2.Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.WithValue(context.Background(), RequestIDKey{}, RandomString(6))
+	ctx := context.WithValue(context.Background(), RequestIDKey{}, config.RandomString(6))
 	slog.Info("trying API to get IM token", "requestID", ctx.Value(RequestIDKey{}).(string))
 	imToken, err := ts.cdiclient.GetIMToken(ctx, secret)
 	if err != nil {

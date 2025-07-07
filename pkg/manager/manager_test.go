@@ -104,7 +104,7 @@ func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *ht
 	server, certPem := client.CreateTLSServer(t)
 	server.StartTLS()
 
-	secret := config.CreateSecret(certPem)
+	secret := config.CreateSecret(certPem, 1)
 	testConfig := &config.TestConfig{
 		Spec:     testSpec,
 		Secret:   secret,

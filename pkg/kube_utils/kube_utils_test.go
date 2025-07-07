@@ -222,6 +222,85 @@ func TestKubeControllersGetConfigMap(t *testing.T) {
 	}
 }
 
+func TestKubeControllersGetSecret(t *testing.T) {
+	caData, err := config.CreateTestCACertificate()
+	if err != nil {
+		t.Fatalf("failed to create ca certificate: %v", err)
+	}
+	testCases := []struct {
+		name                 string
+		certPem              string
+		secretCase           int
+		expectedErr          bool
+		expectedUserName     string
+		expectedPassword     string
+		expectedRealm        string
+		expectedClientId     string
+		expectedClientSecret string
+		expectedCertificate  string
+	}{
+		{
+			name:                 "When correctly create Secret",
+			certPem:              caData.CertPem,
+			secretCase:           1,
+			expectedErr:          false,
+			expectedUserName:     "user",
+			expectedPassword:     "pass",
+			expectedRealm:        "CDI_DRA_Test",
+			expectedClientId:     "0001",
+			expectedClientSecret: "secret",
+			expectedCertificate:  caData.CertPem,
+		},
+		{
+			name:             "When Secret has password more then limits",
+			secretCase:       2,
+			expectedErr:      false,
+			expectedUserName: config.ExceededSecretInfo,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			secret := config.CreateSecret(tc.certPem, tc.secretCase)
+			testConfig := &config.TestConfig{
+				Secret: secret,
+			}
+			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
+			controllers, stop := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			defer stop()
+			secret, err := controllers.GetSecret("composable-dra/composable-dra-secret")
+			if tc.expectedErr {
+				if err == nil {
+					t.Error("expected error, but got none")
+				}
+			} else if !tc.expectedErr {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if secret != nil {
+					if string(secret.Data["username"]) != tc.expectedUserName {
+						t.Errorf("unexpected username, expected %s but got %s", tc.expectedUserName, string(secret.Data["username"]))
+					}
+					if string(secret.Data["password"]) != tc.expectedPassword {
+						t.Errorf("unexpected password, expected %s but got %s", tc.expectedPassword, string(secret.Data["password"]))
+					}
+					if string(secret.Data["realm"]) != tc.expectedRealm {
+						t.Errorf("unexpected realm, expected %s but got %s", tc.expectedRealm, string(secret.Data["realm"]))
+					}
+					if string(secret.Data["client_id"]) != tc.expectedClientId {
+						t.Errorf("unexpected client_id, expected %s but got %s", tc.expectedClientId, string(secret.Data["client_id"]))
+					}
+					if string(secret.Data["client_secret"]) != tc.expectedClientSecret {
+						t.Errorf("unexpected client_secret, expected %s but got %s", tc.expectedClientSecret, string(secret.Data["client_secret"]))
+					}
+					if string(secret.Data["certificate"]) != tc.expectedCertificate {
+						t.Errorf("unexpected certificate, expected %s but got %s", tc.expectedCertificate, string(secret.Data["certificate"]))
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestKubeControllersListProviderIDs(t *testing.T) {
 	testCases := []struct {
 		name                     string

@@ -368,7 +368,7 @@ func (m *CDIManager) getMachineUUIDs() (map[string]string, error) {
 }
 
 func (m *CDIManager) getMachineList(ctx context.Context) (*client.FMMachineList, error) {
-	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
+	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
 	slog.Info("trying to get machine list from FabricManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
 
 	// Publish API to get a machine list from FabricManager
@@ -385,7 +385,7 @@ func (m *CDIManager) getMachineList(ctx context.Context) (*client.FMMachineList,
 }
 
 func (m *CDIManager) getAvailableNums(ctx context.Context, muuid string, modelName string) (int, error) {
-	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
+	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
 	slog.Info("trying to get available reserved resources from FabricManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
 
 	// Publish API to get available reserved resources from FabricManager
@@ -399,7 +399,7 @@ func (m *CDIManager) getAvailableNums(ctx context.Context, muuid string, modelNa
 }
 
 func (m *CDIManager) getNodeGroups(ctx context.Context) (*client.CMNodeGroups, error) {
-	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
+	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
 	slog.Info("trying to get node groups from ClusterManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
 
 	// Publish API to get node groups from ClusterManager
@@ -416,7 +416,7 @@ func (m *CDIManager) getNodeGroups(ctx context.Context) (*client.CMNodeGroups, e
 }
 
 func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.CMNodeGroup) (*client.CMNodeGroupInfo, error) {
-	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
+	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
 	slog.Info("trying to get node group info from ClusterManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
 
 	// Publish API to get a node group info from ClusterManager
@@ -437,7 +437,7 @@ func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.CMNo
 }
 
 func (m *CDIManager) getMinMaxNums(ctx context.Context, muuid string, modelName string) (min *int, max *int, error error) {
-	ctx = context.WithValue(ctx, client.RequestIDKey{}, client.RandomString(6))
+	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
 	slog.Info("trying to get node details from ClusterManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
 
 	// Publish API to get node details from ClusterManager
