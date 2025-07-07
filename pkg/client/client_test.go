@@ -21,7 +21,7 @@ func buildTestCDIClient(t testing.TB, tenantID string, clusterID string) (*CDICl
 	if err != nil {
 		t.Fatalf("failed to parse URL: %v", err)
 	}
-	secret := config.CreateSecret(certPem)
+	secret := config.CreateSecret(certPem, 1)
 	testConfig := &config.TestConfig{
 		Secret: secret,
 	}

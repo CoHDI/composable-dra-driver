@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math/rand"
 	"net/http"
 	"time"
 
@@ -418,14 +417,4 @@ type unsuccessfulResponse struct {
 type responseDetail struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
-}
-
-const CharSet = "123456789"
-
-func RandomString(n int) string {
-	result := make([]byte, n)
-	for i := range result {
-		result[i] = CharSet[rand.Intn(len(CharSet))]
-	}
-	return string(result)
 }

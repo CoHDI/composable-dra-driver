@@ -1,7 +1,7 @@
 package client
 
 import (
-	"crypto"
+	"cdi_dra/pkg/config"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -23,62 +23,7 @@ import (
 	"k8s.io/utils/ptr"
 )
 
-const (
-	CA_EXPIRE = 10 * time.Second
-)
-
-type certData struct {
-	privKey crypto.Signer
-	certPem string
-	caTpl   *x509.Certificate
-}
-
-func createTestCACertificate() (certData, error) {
-	privateCaKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return certData{}, err
-	}
-	publicCaKey := privateCaKey.Public()
-
-	subjectCa := pkix.Name{
-		CommonName:         "ca-composable-dra-dds-test",
-		OrganizationalUnit: []string{"CoHDI"},
-		Organization:       []string{"composable-dra-dds"},
-		Country:            []string{"JP"},
-	}
-	created := time.Now()
-	expire := created.Add(CA_EXPIRE)
-	caTpl := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               subjectCa,
-		NotAfter:              expire,
-		NotBefore:             created,
-		IsCA:                  true,
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
-		BasicConstraintsValid: true,
-	}
-	caCertificate, err := x509.CreateCertificate(rand.Reader, caTpl, caTpl, publicCaKey, privateCaKey)
-	if err != nil {
-		return certData{}, err
-	}
-	block := &pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: caCertificate,
-	}
-	data := pem.EncodeToMemory(block)
-	if data != nil {
-		certData := certData{
-			privKey: privateCaKey,
-			certPem: string(data),
-			caTpl:   caTpl,
-		}
-		return certData, nil
-	} else {
-		return certData{}, fmt.Errorf("failed to convert to pem")
-	}
-}
-
-func createTestServerCertificate(caCertData certData) (certPEMBlock, keyPEMBlock []byte, err error) {
+func createTestServerCertificate(caCertData config.CertData) (certPEMBlock, keyPEMBlock []byte, err error) {
 	privateServerKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, nil, err
@@ -92,7 +37,7 @@ func createTestServerCertificate(caCertData certData) (certPEMBlock, keyPEMBlock
 		Country:            []string{"JP"},
 	}
 	created := time.Now()
-	expire := created.Add(CA_EXPIRE)
+	expire := created.Add(config.CA_EXPIRE)
 	serverTpl := &x509.Certificate{
 		SerialNumber: big.NewInt(123),
 		Subject:      subjectServer,
@@ -106,7 +51,7 @@ func createTestServerCertificate(caCertData certData) (certPEMBlock, keyPEMBlock
 	derPrivateServerKey := x509.MarshalPKCS1PrivateKey(privateServerKey)
 	keyPEMBlock = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: derPrivateServerKey})
 
-	derServerCertificate, err := x509.CreateCertificate(rand.Reader, serverTpl, caCertData.caTpl, publicServerKey, caCertData.privKey)
+	derServerCertificate, err := x509.CreateCertificate(rand.Reader, serverTpl, caCertData.CaTpl, publicServerKey, caCertData.PrivKey)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -284,7 +229,7 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 }
 
 func CreateTLSServer(t testing.TB) (*httptest.Server, string) {
-	caCertData, err := createTestCACertificate()
+	caCertData, err := config.CreateTestCACertificate()
 	if err != nil {
 		t.Fatalf("failed to create CA certficate")
 	}
@@ -300,5 +245,5 @@ func CreateTLSServer(t testing.TB) (*httptest.Server, string) {
 		t.Fatalf("failed to load server key pair: %v", err)
 	}
 	server.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
-	return server, caCertData.certPem
+	return server, caCertData.CertPem
 }
