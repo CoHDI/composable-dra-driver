@@ -23,6 +23,7 @@ const (
 )
 
 var ExceededSecretInfo string = RandomString(1000)
+var UnExceededSecretInfo string = RandomString(999)
 
 type TestConfig struct {
 	Spec       TestSpec
@@ -160,6 +161,27 @@ func CreateSecret(certPem string, secretCase int) *corev1.Secret {
 			ObjectMeta: secretObject,
 			Data: map[string][]byte{
 				"client_secret": []byte(ExceededSecretInfo),
+			},
+		}
+	case 7:
+		secret = &corev1.Secret{
+			TypeMeta:   secretType,
+			ObjectMeta: secretObject,
+			Data: map[string][]byte{
+				"username": []byte(UnExceededSecretInfo),
+			},
+		}
+	case 8:
+		secret = &corev1.Secret{
+			TypeMeta:   secretType,
+			ObjectMeta: secretObject,
+			Data: map[string][]byte{
+				"username":      []byte("user"),
+				"password":      []byte("pass"),
+				"realm":         []byte("Time_Test"),
+				"client_id":     []byte("0001"),
+				"client_secret": []byte("secret"),
+				"certificate":   []byte(certPem),
 			},
 		}
 	}
