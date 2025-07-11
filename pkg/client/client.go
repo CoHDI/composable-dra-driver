@@ -375,7 +375,7 @@ func (c *CDIClient) do(ctx context.Context, req *http.Request) (*result, error) 
 	req = req.WithContext(ctx)
 	resp, err := c.Client.Do(req)
 	if err != nil {
-		slog.Error("failed to Do http request", "error", err, "requestID", ctx.Value(RequestIDKey{}).(string))
+		slog.Error("failed to Do http request", "error", err, "requestID", GetRequestIdFromContext(ctx))
 		return &result, err
 	}
 	defer resp.Body.Close()
@@ -383,7 +383,7 @@ func (c *CDIClient) do(ctx context.Context, req *http.Request) (*result, error) 
 	if resp.Body != nil {
 		data, err := io.ReadAll(resp.Body)
 		if err != nil {
-			slog.Error("unexpected error occurred when reading response body", "error", err, "requestID", ctx.Value(RequestIDKey{}).(string))
+			slog.Error("unexpected error occurred when reading response body", "error", err, "requestID", GetRequestIdFromContext(ctx))
 			return &result, err
 		}
 		result.body = data
@@ -398,13 +398,12 @@ func (r *result) into(ctx context.Context, v any) error {
 		if err := json.Unmarshal(r.body, res); err != nil || res.Detail.Message == "" {
 			res.Detail.Message = string(r.body)
 		}
-		err := fmt.Errorf("received unsuccessful response")
-		slog.Error(err.Error(), "code", r.statusCode, "requestID", ctx.Value(RequestIDKey{}).(string))
-		slog.Error("Detail:", "msg", res.Detail.Message, "requestID", ctx.Value(RequestIDKey{}).(string))
+		err := fmt.Errorf("received unsuccessful response: %s", res.Detail.Message)
+		slog.Error(err.Error(), "code", r.statusCode, "requestID", GetRequestIdFromContext(ctx))
 		return err
 	}
 	if err := json.Unmarshal(r.body, v); err != nil {
-		return fmt.Errorf("failed to read response data into %T", v)
+		return fmt.Errorf("failed to read response data into %T: %v", v, err)
 	}
 	return nil
 }
@@ -417,4 +416,12 @@ type unsuccessfulResponse struct {
 type responseDetail struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+func GetRequestIdFromContext(ctx context.Context) string {
+	val, ok := ctx.Value(RequestIDKey{}).(string)
+	if !ok {
+		return "NotFound"
+	}
+	return val
 }

@@ -5,6 +5,9 @@ import (
 	ku "cdi_dra/pkg/kube_utils"
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"reflect"
@@ -361,5 +364,170 @@ func TestCDIClientGetCMNodeDetails(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCDIClientDo(t *testing.T) {
+	expectedMachineList, _ := json.Marshal(testMachineList)
+	testCases := []struct {
+		name               string
+		nonExistent        string
+		tenantId           string
+		expectedErr        bool
+		expectedErrMsg     string
+		expectedBody       []byte
+		expectedStatusCode int
+	}{
+		{
+			name:               "When correct response is returned",
+			tenantId:           "0001",
+			expectedBody:       expectedMachineList,
+			expectedStatusCode: 200,
+		},
+		{
+			name:           "When request is timeout",
+			tenantId:       "0002",
+			expectedErr:    true,
+			expectedErrMsg: "context deadline exceeded",
+		},
+		{
+			name:               "When not found response is returned",
+			tenantId:           "0003",
+			expectedErr:        false,
+			expectedStatusCode: 404,
+		},
+		{
+			name:           "When connecting to not-existent destination",
+			nonExistent:    "dummy-",
+			expectedErr:    true,
+			expectedErrMsg: "context deadline exceeded",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			clusterId := "0001"
+			client, server, stop := buildTestCDIClient(t, tc.tenantId, clusterId)
+			defer stop()
+			defer server.Close()
+
+			parsedURL, _ := url.Parse(server.URL)
+			url := &url.URL{
+				Scheme: "https",
+				Host:   tc.nonExistent + parsedURL.Host,
+				Path:   "/fabric_manager/api/v1/machines",
+				RawQuery: url.Values{
+					"tenant_uuid": []string{tc.tenantId},
+				}.Encode(),
+			}
+
+			httpReq, err := http.NewRequest("GET", url.String(), nil)
+			if err != nil {
+				t.Fatalf("failed to create HTTP request, url: %s", url.String())
+			}
+			httpReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", testAccessToken))
+
+			ctx := context.WithValue(context.Background(), RequestIDKey{}, config.RandomString(6))
+			result, err := client.do(ctx, httpReq)
+
+			if tc.expectedErr {
+				if err == nil {
+					t.Error("expected error, but got none")
+				}
+				if !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
+				}
+			} else if !tc.expectedErr {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if string(result.body) != string(tc.expectedBody) {
+					t.Errorf("unexpected result body, expected %s but got %s", tc.expectedBody, result.body)
+				}
+				if result.statusCode != tc.expectedStatusCode {
+					t.Errorf("unexpected status code, expected %d but got %d", tc.expectedStatusCode, result.statusCode)
+				}
+			}
+		})
+	}
+}
+
+func TestResultInto(t *testing.T) {
+	resultBody1, _ := json.Marshal(testMachineList)
+	unSccressResponse := unsuccessfulResponse{
+		Status: "400",
+		Detail: responseDetail{
+			Code:    "Exxxxx",
+			Message: "Exxxxx Error message",
+		},
+	}
+	resultBody2, _ := json.Marshal(unSccressResponse)
+
+	resultBody3 := []byte("something error message")
+
+	testCases := []struct {
+		name                string
+		resultBody          []byte
+		statusCode          int
+		intoStruct          *FMMachineList
+		expectedErr         bool
+		expectedErrMsg      string
+		expectedMachineUUID string
+	}{
+		{
+			name:                "When correct data is converted",
+			resultBody:          resultBody1,
+			statusCode:          200,
+			intoStruct:          &FMMachineList{},
+			expectedErr:         false,
+			expectedMachineUUID: "0001",
+		},
+		{
+			name:           "When error response is returned in the form of unsuccessfulResponse",
+			resultBody:     resultBody2,
+			statusCode:     400,
+			intoStruct:     &FMMachineList{},
+			expectedErr:    true,
+			expectedErrMsg: "Exxxxx Error message",
+		},
+		{
+			name:           "When error response is returned not in the form of unsuccessfuleResponse",
+			resultBody:     resultBody3,
+			statusCode:     400,
+			intoStruct:     &FMMachineList{},
+			expectedErr:    true,
+			expectedErrMsg: "something error message",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := &result{
+				body:       tc.resultBody,
+				statusCode: tc.statusCode,
+			}
+
+			err := result.into(context.Background(), tc.intoStruct)
+
+			if tc.expectedErr {
+				if err == nil {
+					t.Error("expected error, but got none")
+				}
+				if !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
+				}
+			} else if !tc.expectedErr {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				var machineUUID string
+				if len(tc.intoStruct.Data.Machines) > 0 {
+					machineUUID = tc.intoStruct.Data.Machines[0].MachineUUID
+				}
+				if machineUUID != tc.expectedMachineUUID {
+					t.Errorf("unexpected machine uuid, expected %s but got %s", tc.expectedMachineUUID, machineUUID)
+				}
+			}
+		})
+
 	}
 }

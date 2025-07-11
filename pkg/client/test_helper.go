@@ -177,6 +177,16 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 							w.WriteHeader(http.StatusOK)
 							w.Write(response)
 						}
+						if key == "tenant_uuid" && value[0] == "0002" {
+							time.Sleep(15 * time.Second)
+							response, _ := json.Marshal(testMachineList)
+							w.Header().Set("Content-Type", "application/json")
+							w.WriteHeader(http.StatusOK)
+							w.Write(response)
+						}
+						if key == "tenant_uuid" && value[0] == "0003" {
+							w.WriteHeader(http.StatusNotFound)
+						}
 					}
 				}
 				if strings.HasSuffix(r.URL.Path, "/available-reserved-resources") {
