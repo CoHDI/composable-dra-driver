@@ -144,17 +144,3 @@ func CreateNodeBMHMachines(num int, namespace string, useCapiBmh bool) (node *co
 	}
 	return node, bmh, machine
 }
-
-//func CreateBMHs(bmhNum int, namespace string) *unstructured.Unstructured {
-//	bmh := &unstructured.Unstructured{
-//		Object: map[string]interface{}{
-//			"kind":       "BareMetalHost",
-//			"apiVersion": Metal3APIVersion,
-//			"metadata": map[string]interface{}{
-//				"name":      fmt.Sprintf("test-bmh-%d", bmhNum),
-//				"namespace": namespace,
-//				"uid":       fmt.Sprintf("test-providerid-%d", bmhNum),
-//			},
-//		},
-//	}
-//}
