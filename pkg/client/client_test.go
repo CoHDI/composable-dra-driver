@@ -58,7 +58,7 @@ func TestCDIClientGetIMToken(t *testing.T) {
 			password: "pass",
 			realm:    "CDI_DRA_Test",
 			expectedToken: &IMToken{
-				AccessToken:      "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":775710000}`)),
+				AccessToken:      "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":2069550000}`)),
 				ExpiresIn:        1,
 				RefreshExpiresIn: 2,
 				RefreshToken:     "token2",
@@ -88,8 +88,8 @@ func TestCDIClientGetIMToken(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			tenantID := "0001"
-			clusterID := "0001"
+			tenantID := "00000000-0000-0001-0000-000000000000"
+			clusterID := "00000000-0000-0000-0001-000000000000"
 			client, server, stop := buildTestCDIClient(t, tenantID, clusterID)
 			defer stop()
 			defer server.Close()
@@ -131,13 +131,13 @@ func TestCDIClientGetFMMachineList(t *testing.T) {
 	}{
 		{
 			name:        "When get FM machine list",
-			tenantId:    "0001",
+			tenantId:    "00000000-0000-0001-0000-000000000000",
 			expectedErr: false,
 			expectedMachineList: &FMMachineList{
 				Data: FMMachines{
 					Machines: []FMMachine{
 						{
-							MachineUUID: "0001",
+							MachineUUID: "00000000-0000-0000-0000-000000000000",
 							FabricID:    ptr.To(1),
 						},
 					},
@@ -147,7 +147,7 @@ func TestCDIClientGetFMMachineList(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			clusterID := "0001"
+			clusterID := "00000000-0000-0000-0001-000000000000"
 			client, server, stop := buildTestCDIClient(t, tc.tenantId, clusterID)
 			defer stop()
 			defer server.Close()
@@ -159,7 +159,7 @@ func TestCDIClientGetFMMachineList(t *testing.T) {
 					t.Errorf("unexpected error: %v", err)
 				}
 				if !reflect.DeepEqual(tc.expectedMachineList, mList) {
-					t.Errorf("expected machine list: %#v, got %#v", tc.expectedMachineList, mList)
+					t.Errorf("unexpected machine list: %#v, but got %#v", tc.expectedMachineList, mList)
 				}
 			}
 		})
@@ -177,19 +177,20 @@ func TestCDIClientGetFMAvailableReservedResources(t *testing.T) {
 	}{
 		{
 			name:        "When correctly getting FM available reserved resources",
-			tenantId:    "0001",
-			machineUUID: "0001",
-			deviceModel: "A100",
+			tenantId:    "00000000-0000-0001-0000-000000000000",
+			machineUUID: "00000000-0000-0000-0000-000000000000",
+			deviceModel: "DEVICE 1",
 			expectedErr: false,
 			expectedAvailableReservedResources: &FMAvailableReservedResources{
-				ReservedResourceNum: 5,
+				FabricID:            1,
+				ReservedResourceNum: 2,
 			},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			clusterID := "0001"
+			clusterID := "00000000-0000-0000-0001-000000000000"
 			client, server, stop := buildTestCDIClient(t, tc.tenantId, clusterID)
 			defer stop()
 			defer server.Close()
@@ -202,7 +203,7 @@ func TestCDIClientGetFMAvailableReservedResources(t *testing.T) {
 					t.Errorf("unexpected error: %v", err)
 				}
 				if !reflect.DeepEqual(tc.expectedAvailableReservedResources, avaialbleNum) {
-					t.Errorf("expected available reserved resources: %#v, got %#v", tc.expectedAvailableReservedResources, avaialbleNum)
+					t.Errorf("unexpected available reserved resources: %#v, but got %#v", tc.expectedAvailableReservedResources, avaialbleNum)
 				}
 			}
 		})
@@ -219,13 +220,13 @@ func TestCDIClientGetCMNodeGroups(t *testing.T) {
 	}{
 		{
 			name:        "When correctly getting CM nodegroups",
-			tenantId:    "0001",
-			clusterId:   "0001",
+			tenantId:    "00000000-0000-0001-0000-000000000000",
+			clusterId:   "00000000-0000-0000-0001-000000000000",
 			expectedErr: false,
 			expectedNodeGroups: &CMNodeGroups{
 				NodeGroups: []CMNodeGroup{
 					{
-						UUID: "0001",
+						UUID: "10000000-0000-0000-0000-000000000000",
 					},
 				},
 			},
@@ -264,14 +265,14 @@ func TestCDIClientGetCMNodeGroupInfo(t *testing.T) {
 	}{
 		{
 			name:          "When correctly getting CM nodegroups",
-			tenantId:      "0001",
-			clusterId:     "0001",
-			nodeGroupUUID: "0001",
+			tenantId:      "00000000-0000-0001-0000-000000000000",
+			clusterId:     "00000000-0000-0000-0001-000000000000",
+			nodeGroupUUID: "10000000-0000-0000-0000-000000000000",
 			expectedErr:   false,
 			expectedNodeGroupInfo: &CMNodeGroupInfo{
-				UUID: "0001",
+				UUID: "10000000-0000-0000-0000-000000000000",
 				MachineIDs: []string{
-					"0001",
+					"00000000-0000-0000-0000-000000000000",
 				},
 			},
 		},
@@ -312,15 +313,15 @@ func TestCDIClientGetCMNodeDetails(t *testing.T) {
 	}{
 		{
 			name:        "When correctly getting CM nodegroups",
-			tenantId:    "0001",
-			clusterId:   "0001",
-			machineUUID: "0001",
+			tenantId:    "00000000-0000-0001-0000-000000000000",
+			clusterId:   "00000000-0000-0000-0001-000000000000",
+			machineUUID: "00000000-0000-0000-0000-000000000000",
 			expectedErr: false,
 			expectedNodeDetails: &CMNodeDetails{
 				Data: CMTenant{
 					Cluster: CMCluster{
 						Machine: CMMachine{
-							UUID: "0001",
+							UUID: "00000000-0000-0000-0000-000000000000",
 							ResSpecs: []CMResSpec{
 								{
 									Type:            "gpu",
@@ -332,7 +333,7 @@ func TestCDIClientGetCMNodeDetails(t *testing.T) {
 												{
 													Column:   "model",
 													Operator: "eq",
-													Value:    "A100",
+													Value:    "DEVICE 1",
 												},
 											},
 										},
@@ -360,7 +361,7 @@ func TestCDIClientGetCMNodeDetails(t *testing.T) {
 					t.Errorf("unexpected error: %v", err)
 				}
 				if !reflect.DeepEqual(tc.expectedNodeDetails, nodeDetails) {
-					t.Errorf("expected node groups: %#v, got %#v", tc.expectedNodeDetails, nodeDetails)
+					t.Errorf("unexpected node groups, expected %#v but got %#v", tc.expectedNodeDetails, nodeDetails)
 				}
 			}
 		})
@@ -368,7 +369,7 @@ func TestCDIClientGetCMNodeDetails(t *testing.T) {
 }
 
 func TestCDIClientDo(t *testing.T) {
-	expectedMachineList, _ := json.Marshal(testMachineList)
+	expectedMachineList, _ := json.Marshal(testMachineList1)
 	testCases := []struct {
 		name               string
 		nonExistent        string
@@ -380,19 +381,19 @@ func TestCDIClientDo(t *testing.T) {
 	}{
 		{
 			name:               "When correct response is returned",
-			tenantId:           "0001",
+			tenantId:           "00000000-0000-0001-0000-000000000000",
 			expectedBody:       expectedMachineList,
 			expectedStatusCode: 200,
 		},
 		{
 			name:           "When request is timeout",
-			tenantId:       "0002",
+			tenantId:       "00000000-0000-0400-0000-000000000000",
 			expectedErr:    true,
 			expectedErrMsg: "context deadline exceeded",
 		},
 		{
 			name:               "When not found response is returned",
-			tenantId:           "0003",
+			tenantId:           "00000000-0000-0404-0000-000000000000",
 			expectedErr:        false,
 			expectedStatusCode: 404,
 		},
@@ -406,7 +407,7 @@ func TestCDIClientDo(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			clusterId := "0001"
+			clusterId := "00000000-0000-0000-0001-000000000000"
 			client, server, stop := buildTestCDIClient(t, tc.tenantId, clusterId)
 			defer stop()
 			defer server.Close()
@@ -453,7 +454,7 @@ func TestCDIClientDo(t *testing.T) {
 }
 
 func TestResultInto(t *testing.T) {
-	resultBody1, _ := json.Marshal(testMachineList)
+	resultBody1, _ := json.Marshal(testMachineList1)
 	unSccressResponse := unsuccessfulResponse{
 		Status: "400",
 		Detail: responseDetail{
@@ -480,7 +481,7 @@ func TestResultInto(t *testing.T) {
 			statusCode:          200,
 			intoStruct:          &FMMachineList{},
 			expectedErr:         false,
-			expectedMachineUUID: "0001",
+			expectedMachineUUID: "00000000-0000-0000-0000-000000000000",
 		},
 		{
 			name:           "When error response is returned in the form of unsuccessfulResponse",

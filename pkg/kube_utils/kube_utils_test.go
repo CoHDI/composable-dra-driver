@@ -316,7 +316,7 @@ func TestKubeControllersListProviderIDs(t *testing.T) {
 			nodeCount:                1,
 			useCapiBmh:               true,
 			expectedErr:              false,
-			expectedProviderID:       "test-providerid-0",
+			expectedProviderID:       "00000000-0000-0000-0000-000000000000",
 			expectedProviderIDLength: 1,
 		},
 		{
@@ -324,7 +324,7 @@ func TestKubeControllersListProviderIDs(t *testing.T) {
 			nodeCount:                2,
 			useCapiBmh:               false,
 			expectedErr:              false,
-			expectedProviderID:       "test-providerid-1",
+			expectedProviderID:       "00000000-0000-0000-0000-000000000001",
 			expectedProviderIDLength: 2,
 		},
 	}
@@ -374,7 +374,7 @@ func TestKubeControllersFindNodeNameByProviderID(t *testing.T) {
 			name:             "When correctly providerID is provided if useCapiBmh is true",
 			nodeCount:        1,
 			useCapiBmh:       true,
-			providerID:       "test-providerid-0",
+			providerID:       "00000000-0000-0000-0000-000000000000",
 			expectedErr:      false,
 			expectedNodeName: "test-node-0",
 		},
@@ -382,7 +382,7 @@ func TestKubeControllersFindNodeNameByProviderID(t *testing.T) {
 			name:             "When correctly providerID is provided if useCapiBmh is false",
 			nodeCount:        2,
 			useCapiBmh:       false,
-			providerID:       "test-providerid-1",
+			providerID:       "00000000-0000-0000-0000-000000000001",
 			expectedErr:      false,
 			expectedNodeName: "test-node-1",
 		},
@@ -428,9 +428,9 @@ func TestKubeControllersFindMachineUUIDByProviderID(t *testing.T) {
 		{
 			name:                "When correctly provider ID is provided",
 			nodeCount:           1,
-			providerID:          "test-providerid-0",
+			providerID:          "00000000-0000-0000-0000-000000000000",
 			expectedErr:         false,
-			expectedMachineUUID: "test-node-0",
+			expectedMachineUUID: "00000000-0000-0000-0000-000000000000",
 		},
 	}
 

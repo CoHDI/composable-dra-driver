@@ -16,12 +16,26 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"k8s.io/utils/ptr"
 )
+
+const (
+	tenantID1        = "00000000-0000-0001-0000-000000000000"
+	tenantID2        = "00000000-0000-0002-0000-000000000000"
+	tenantIDTimeOut  = "00000000-0000-0400-0000-000000000000"
+	tenantIDNotFound = "00000000-0000-0404-0000-000000000000"
+
+	clusterID1 = "00000000-0000-0000-0001-000000000000"
+)
+
+var deviceList = []string{"DEVICE 1", "DEVICE 2", "DEVICE 3"}
 
 func createTestServerCertificate(caCertData config.CertData) (certPEMBlock, keyPEMBlock []byte, err error) {
 	privateServerKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -61,7 +75,7 @@ func createTestServerCertificate(caCertData config.CertData) (certPEMBlock, keyP
 	return certPEMBlock, keyPEMBlock, nil
 }
 
-var testAccessToken string = "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":775710000}`))
+var testAccessToken string = "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":2069550000}`))
 
 var testIMToken IMToken = IMToken{
 	AccessToken:      testAccessToken,
@@ -75,53 +89,190 @@ var testIMToken IMToken = IMToken{
 	Scope:            "test profile",
 }
 
-var testMachineList FMMachineList = FMMachineList{
+var testMachineList1 FMMachineList = FMMachineList{
 	Data: FMMachines{
 		Machines: []FMMachine{
 			{
-				MachineUUID: "0001",
+				MachineUUID: "00000000-0000-0000-0000-000000000000",
 				FabricID:    ptr.To(1),
 			},
 		},
 	},
 }
 
-var testAvailableReservedResources = FMAvailableReservedResources{
-	ReservedResourceNum: 5,
-}
-
-var testNodeGroups = CMNodeGroups{
-	NodeGroups: []CMNodeGroup{
-		{
-			UUID: "0001",
+var testMachineList2 FMMachineList = FMMachineList{
+	Data: FMMachines{
+		Machines: []FMMachine{
+			{
+				MachineUUID: "00000000-0000-0000-0000-000000000000",
+				FabricID:    ptr.To(1),
+			},
+			{
+				MachineUUID: "00000000-0000-0000-0000-000000000001",
+				FabricID:    ptr.To(2),
+			},
+			{
+				MachineUUID: "00000000-0000-0000-0000-000000000002",
+				FabricID:    ptr.To(3),
+			},
+			{
+				MachineUUID: "00000000-0000-0000-0000-000000000003",
+				FabricID:    ptr.To(1),
+			},
+			{
+				MachineUUID: "00000000-0000-0000-0000-000000000004",
+				FabricID:    ptr.To(2),
+			},
+			{
+				MachineUUID: "00000000-0000-0000-0000-000000000005",
+				FabricID:    ptr.To(3),
+			},
+			{
+				MachineUUID: "00000000-0000-0000-0000-000000000006",
+				FabricID:    ptr.To(1),
+			},
+			{
+				MachineUUID: "00000000-0000-0000-0000-000000000007",
+				FabricID:    ptr.To(2),
+			},
+			{
+				MachineUUID: "00000000-0000-0000-0000-000000000008",
+				FabricID:    ptr.To(3),
+			},
 		},
 	},
 }
 
-var testNodeGroupInfo = CMNodeGroupInfo{
-	UUID: "0001",
-	MachineIDs: []string{
-		"0001",
+var testAvailableReservedResources = map[string][]FMAvailableReservedResources{
+	"DEVICE 1": {
+		{
+			FabricID:            1,
+			ReservedResourceNum: 2,
+		},
+		{
+			FabricID:            2,
+			ReservedResourceNum: 5,
+		},
+		{
+			FabricID:            3,
+			ReservedResourceNum: 7,
+		},
+	},
+	"DEVICE 2": {
+		{
+			FabricID:            1,
+			ReservedResourceNum: 2,
+		},
+		{
+			FabricID:            2,
+			ReservedResourceNum: 5,
+		},
+		{
+			FabricID:            3,
+			ReservedResourceNum: 7,
+		},
+	},
+	"DEVICE 3": {
+		{
+			FabricID:            1,
+			ReservedResourceNum: 2,
+		},
+		{
+			FabricID:            2,
+			ReservedResourceNum: 5,
+		},
+		{
+			FabricID:            3,
+			ReservedResourceNum: 7,
+		},
 	},
 }
 
-var testNodeDetails = CMNodeDetails{
-	Data: CMTenant{
-		Cluster: CMCluster{
-			Machine: CMMachine{
-				UUID: "0001",
-				ResSpecs: []CMResSpec{
-					{
-						Type:            "gpu",
-						MinResSpecCount: ptr.To(1),
-						MaxResSpecCount: ptr.To(3),
-						Selector: CMSelector{
-							Expression: CMExpression{
-								Conditions: []Condition{
-									{
-										Column:   "model",
-										Operator: "eq",
-										Value:    "A100",
+var testNodeGroups1 = CMNodeGroups{
+	NodeGroups: []CMNodeGroup{
+		{
+			UUID: "10000000-0000-0000-0000-000000000000",
+		},
+	},
+}
+
+var testNodeGroups2 = CMNodeGroups{
+	NodeGroups: []CMNodeGroup{
+		{
+			Name: "NodeGroup1",
+			UUID: "10000000-0000-0000-0000-000000000000",
+		},
+		{
+			Name: "NodeGroup2",
+			UUID: "20000000-0000-0000-0000-000000000000",
+		},
+		{
+			Name: "NodeGroup3",
+			UUID: "30000000-0000-0000-0000-000000000000",
+		},
+	},
+}
+
+var testNodeGroupInfos1 = []CMNodeGroupInfo{
+	{
+		UUID: "10000000-0000-0000-0000-000000000000",
+		MachineIDs: []string{
+			"00000000-0000-0000-0000-000000000000",
+		},
+	},
+}
+
+var testNodeGroupInfos2 = []CMNodeGroupInfo{
+	{
+		UUID: "10000000-0000-0000-0000-000000000000",
+		MachineIDs: []string{
+			"00000000-0000-0000-0000-000000000000",
+			"00000000-0000-0000-0000-000000000001",
+			"00000000-0000-0000-0000-000000000002",
+		},
+	},
+	{
+		UUID: "20000000-0000-0000-0000-000000000000",
+		MachineIDs: []string{
+			"00000000-0000-0000-0000-000000000003",
+			"00000000-0000-0000-0000-000000000004",
+			"00000000-0000-0000-0000-000000000005",
+		},
+	},
+	{
+		UUID: "30000000-0000-0000-0000-000000000000",
+		MachineIDs: []string{
+			"00000000-0000-0000-0000-000000000006",
+			"00000000-0000-0000-0000-000000000007",
+			"00000000-0000-0000-0000-000000000008",
+		},
+	},
+}
+
+var testNodeDetails1 = createTestNodeDetails(1)
+
+var testNodeDetails2 = createTestNodeDetails(9)
+
+func createTestNodeDetails(nodeCount int) []CMNodeDetails {
+	var nodeDetails []CMNodeDetails
+	for i := 0; i < nodeCount; i++ {
+		nodeDetail := CMNodeDetails{
+			Data: CMTenant{
+				Cluster: CMCluster{
+					Machine: CMMachine{
+						UUID: fmt.Sprintf("00000000-0000-0000-0000-00000000000%d", i),
+						ResSpecs: []CMResSpec{
+							{
+								Type: "gpu",
+								Selector: CMSelector{
+									Expression: CMExpression{
+										Conditions: []Condition{
+											{
+												Column:   "model",
+												Operator: "eq",
+												Value:    "DEVICE 1",
+											},
+										},
 									},
 								},
 							},
@@ -129,8 +280,21 @@ var testNodeDetails = CMNodeDetails{
 					},
 				},
 			},
-		},
-	},
+		}
+		switch i / 3 {
+		case 0:
+			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MinResSpecCount = ptr.To(1)
+			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MaxResSpecCount = ptr.To(3)
+		case 1:
+			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MinResSpecCount = ptr.To(2)
+			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MaxResSpecCount = ptr.To(6)
+		case 2:
+			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MinResSpecCount = ptr.To(3)
+			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MaxResSpecCount = ptr.To(12)
+		}
+		nodeDetails = append(nodeDetails, nodeDetail)
+	}
+	return nodeDetails
 }
 
 func handleRequests(w http.ResponseWriter, r *http.Request) {
@@ -171,35 +335,43 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 				remainder := strings.TrimPrefix(r.URL.Path, "/fabric_manager/api/v1/machines")
 				if remainder == "" {
 					for key, value := range r.URL.Query() {
-						if key == "tenant_uuid" && value[0] == "0001" {
-							response, _ := json.Marshal(testMachineList)
+						var response []byte
+						if key == "tenant_uuid" && value[0] == tenantID1 {
+							response, _ = json.Marshal(testMachineList1)
+						}
+						if key == "tenant_uuid" && value[0] == tenantID2 {
+							response, _ = json.Marshal(testMachineList2)
+						}
+						if len(response) > 0 {
 							w.Header().Set("Content-Type", "application/json")
 							w.WriteHeader(http.StatusOK)
 							w.Write(response)
 						}
-						if key == "tenant_uuid" && value[0] == "0002" {
+						if key == "tenant_uuid" && value[0] == tenantIDTimeOut {
 							time.Sleep(15 * time.Second)
-							response, _ := json.Marshal(testMachineList)
+							response, _ := json.Marshal(testMachineList1)
 							w.Header().Set("Content-Type", "application/json")
 							w.WriteHeader(http.StatusOK)
 							w.Write(response)
 						}
-						if key == "tenant_uuid" && value[0] == "0003" {
+						if key == "tenant_uuid" && value[0] == tenantIDNotFound {
 							w.WriteHeader(http.StatusNotFound)
 						}
 					}
 				}
 				if strings.HasSuffix(r.URL.Path, "/available-reserved-resources") {
 					muuid := strings.TrimSuffix(remainder, "/available-reserved-resources")
-					if muuid == "/0001" {
+					regex := regexp.MustCompile("^/[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
+					if regex.MatchString(muuid) {
+						index, _ := strconv.Atoi(string(muuid[len(muuid)-1]))
 						var condition Condition
 						query := r.URL.Query()
-						if value, exist := query["tenant_uuid"]; exist && value[0] == "0001" {
+						if value, exist := query["tenant_uuid"]; exist && (value[0] == tenantID1 || value[0] == tenantID2) {
 							if value, exist := query["res_type"]; exist && value[0] == "gpu" {
 								if value, exist := query["condition"]; exist {
 									_ = json.Unmarshal([]byte(value[0]), &condition)
-									if condition.Column == "model" && condition.Operator == "eq" && condition.Value == "A100" {
-										response, _ := json.Marshal(testAvailableReservedResources)
+									if condition.Column == "model" && condition.Operator == "eq" && slices.Contains(deviceList, condition.Value) {
+										response, _ := json.Marshal(testAvailableReservedResources[condition.Value][(index)%3])
 										w.Header().Set("Content-Type", "application/json")
 										w.WriteHeader(http.StatusOK)
 										w.Write(response)
@@ -212,33 +384,90 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 			}
 			if strings.HasPrefix(r.URL.Path, "/cluster_manager/cluster_autoscaler") {
 				remainder := strings.TrimPrefix(r.URL.Path, "/cluster_manager/cluster_autoscaler")
-				if strings.HasPrefix(remainder, "/v2") {
-					remainder = strings.TrimPrefix(remainder, "/v2/tenants/0001/clusters")
-					if strings.HasSuffix(remainder, "/nodegroups") {
-						clusterId := strings.TrimSuffix(remainder, "/nodegroups")
-						if clusterId == "/0001" {
-							response, _ := json.Marshal(testNodeGroups)
-							w.Header().Set("Content-Type", "application/json")
-							w.WriteHeader(http.StatusOK)
-							w.Write(response)
-						}
-					} else {
-						ngId := strings.TrimPrefix(remainder, "/0001/nodegroups")
-						if ngId == "/0001" {
-							response, _ := json.Marshal(testNodeGroupInfo)
-							w.Header().Set("Content-Type", "application/json")
-							w.WriteHeader(http.StatusOK)
-							w.Write(response)
+				if strings.HasPrefix(remainder, "/v2/tenants/") {
+					remainder = strings.TrimPrefix(remainder, "/v2/tenants/")
+					var tenantId string
+					if strings.HasPrefix(remainder, tenantID1) {
+						remainder = strings.TrimPrefix(remainder, tenantID1+"/clusters")
+						tenantId = tenantID1
+					}
+					if strings.HasPrefix(remainder, tenantID2) {
+						remainder = strings.TrimPrefix(remainder, tenantID2+"/clusters")
+						tenantId = tenantID2
+					}
+					if len(tenantId) != 0 {
+						if strings.HasSuffix(remainder, "/nodegroups") {
+							clusterId := strings.TrimSuffix(remainder, "/nodegroups")
+							var response []byte
+							if tenantId == tenantID1 {
+								if clusterId == "/"+clusterID1 {
+									response, _ = json.Marshal(testNodeGroups1)
+								}
+							}
+							if tenantId == tenantID2 {
+								if clusterId == "/"+clusterID1 {
+									response, _ = json.Marshal(testNodeGroups2)
+								}
+							}
+							if len(response) > 0 {
+								w.Header().Set("Content-Type", "application/json")
+								w.WriteHeader(http.StatusOK)
+								w.Write(response)
+							}
+						} else {
+							ngId := strings.TrimPrefix(remainder, "/"+clusterID1+"/nodegroups")
+							var response []byte
+							if tenantId == tenantID1 {
+								if ngId == "/10000000-0000-0000-0000-000000000000" {
+									response, _ = json.Marshal(testNodeGroupInfos1[0])
+								}
+							}
+							if tenantId == tenantID2 {
+								if ngId == "/10000000-0000-0000-0000-000000000000" {
+									response, _ = json.Marshal(testNodeGroupInfos2[0])
+								}
+								if ngId == "/20000000-0000-0000-0000-000000000000" {
+									response, _ = json.Marshal(testNodeGroupInfos2[1])
+								}
+								if ngId == "/30000000-0000-0000-0000-000000000000" {
+									response, _ = json.Marshal(testNodeGroupInfos2[2])
+								}
+							}
+							if len(response) > 0 {
+								w.Header().Set("Content-Type", "application/json")
+								w.WriteHeader(http.StatusOK)
+								w.Write(response)
+							}
 						}
 					}
 				}
-				if strings.HasPrefix(remainder, "/v3") {
-					muuid := strings.TrimPrefix(remainder, "/v3/tenants/0001/clusters/0001/machines/")
-					if muuid == "0001" {
-						response, _ := json.Marshal(testNodeDetails)
-						w.Header().Set("Content-Type", "application/json")
-						w.WriteHeader(http.StatusOK)
-						w.Write(response)
+				if strings.HasPrefix(remainder, "/v3/tenants/") {
+					remainder = strings.TrimPrefix(remainder, "/v3/tenants/")
+					var tenantId string
+					if strings.HasPrefix(remainder, tenantID1) {
+						remainder = strings.TrimPrefix(remainder, tenantID1+"/clusters")
+						tenantId = tenantID1
+					}
+					if strings.HasPrefix(remainder, tenantID2) {
+						remainder = strings.TrimPrefix(remainder, tenantID2+"/clusters")
+						tenantId = tenantID2
+					}
+					muuid := strings.TrimPrefix(remainder, "/"+clusterID1+"/machines/")
+					r := regexp.MustCompile("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
+					if r.MatchString(muuid) {
+						index, _ := strconv.Atoi(string(muuid[len(muuid)-1]))
+						var response []byte
+						if tenantId == tenantID1 {
+							response, _ = json.Marshal(testNodeDetails1[index])
+						}
+						if tenantId == tenantID2 {
+							response, _ = json.Marshal(testNodeDetails2[index])
+						}
+						if len(response) > 0 {
+							w.Header().Set("Content-Type", "application/json")
+							w.WriteHeader(http.StatusOK)
+							w.Write(response)
+						}
 					}
 				}
 			}
