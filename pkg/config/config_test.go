@@ -25,8 +25,8 @@ func TestGetDeviceInfos(t *testing.T) {
 		{
 			name:                "When provided correct ConfigMap",
 			cm:                  cms[0],
-			expectedDriverNames: []string{"gpu.nvidia.com"},
-			expectedLength:      1,
+			expectedDriverNames: []string{"test-driver-1", "test-driver-2"},
+			expectedLength:      3,
 			expectedErr:         false,
 		},
 		{

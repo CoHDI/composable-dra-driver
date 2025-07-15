@@ -3,8 +3,182 @@ package client
 import (
 	"cdi_dra/pkg/config"
 	ku "cdi_dra/pkg/kube_utils"
+	"encoding/base64"
+	"regexp"
 	"testing"
+	"time"
 )
+
+func TestCachedIMTokenSourceToken(t *testing.T) {
+	caData, err := config.CreateTestCACertificate()
+	if err != nil {
+		t.Fatalf("failed to create ca certificate: %v", err)
+	}
+	testCases := []struct {
+		name                 string
+		secretCase           int
+		certPem              string
+		sleepTime            time.Duration
+		expectedErr          bool
+		expectedTokenUpdate  bool
+		expectedAccessToken  string
+		expectedTokenType    string
+		expectedRefreshToken string
+	}{
+		{
+			name:                 "When token is cached",
+			secretCase:           8,
+			sleepTime:            1,
+			certPem:              caData.CertPem,
+			expectedErr:          false,
+			expectedTokenUpdate:  false,
+			expectedAccessToken:  `^token1`,
+			expectedTokenType:    "Bearer",
+			expectedRefreshToken: "token2",
+		},
+		{
+			name:                 "When token is newly issued",
+			secretCase:           8,
+			sleepTime:            5,
+			certPem:              caData.CertPem,
+			expectedErr:          false,
+			expectedTokenUpdate:  true,
+			expectedAccessToken:  `^token1`,
+			expectedTokenType:    "Bearer",
+			expectedRefreshToken: "token2",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tenantID := "0001"
+			clusterID := "0001"
+			client, server, stopServer := buildTestCDIClient(t, tenantID, clusterID)
+			defer stopServer()
+			defer server.Close()
+			secret := config.CreateSecret(tc.certPem, tc.secretCase)
+			testConfig := &config.TestConfig{
+				Secret: secret,
+			}
+			kubeclient, dynamicclient := ku.CreateTestClient(t, testConfig)
+			controllers, stopController := ku.CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			defer stopController()
+
+			tokenSource := CachedIMTokenSource(client, controllers)
+
+			now := time.Now()
+			token1, _ := tokenSource.Token()
+			expiry1 := token1.Expiry
+
+			time.Sleep(tc.sleepTime * time.Second)
+
+			token2, err := tokenSource.Token()
+
+			if tc.expectedErr {
+				if err == nil {
+					t.Error("expected error, but got none")
+				}
+			} else if !tc.expectedErr {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				re, err := regexp.Compile(tc.expectedAccessToken)
+				if err != nil {
+					t.Fatalf("Error compiling regex: %v", err)
+				}
+				if !re.MatchString(token2.AccessToken) {
+					t.Errorf("unexpected AccessToken, expected %s but got %s", tc.expectedAccessToken, token2.AccessToken)
+				}
+				if token2.TokenType != tc.expectedTokenType {
+					t.Errorf("unexpected TokenType, expected %s but got %s", tc.expectedTokenType, token2.TokenType)
+				}
+				if token2.RefreshToken != tc.expectedRefreshToken {
+					t.Errorf("unexpected RefreshToken, expected %s but got %s", tc.expectedRefreshToken, token2.RefreshToken)
+				}
+				if tc.expectedTokenUpdate {
+					if token2.Expiry.Equal(expiry1) || token2.Expiry.Before(now.Add(35*time.Second)) {
+						t.Error("unexpected expiry of token, expected update but not done")
+					}
+				} else if !tc.expectedTokenUpdate {
+					if !token2.Expiry.Equal(expiry1) {
+						t.Error("unexpected expiry of token, expected cached but updated")
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestIdManagerTokenSourceToken(t *testing.T) {
+	caData, err := config.CreateTestCACertificate()
+	if err != nil {
+		t.Fatalf("failed to create ca certificate: %v", err)
+	}
+	testCases := []struct {
+		name                 string
+		secretCase           int
+		certPem              string
+		expectedErr          bool
+		expectedAccessToken  string
+		expectedTokenType    string
+		expectedRefreshToken string
+		expectedExpiry       time.Time
+	}{
+		{
+			name:                 "When correct IMToken is obtained",
+			secretCase:           1,
+			certPem:              caData.CertPem,
+			expectedErr:          false,
+			expectedAccessToken:  "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":775710000}`)),
+			expectedTokenType:    "Bearer",
+			expectedRefreshToken: "token2",
+			expectedExpiry:       time.Unix(775710000, 0),
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tenantID := "0001"
+			clusterID := "0001"
+			client, server, stopServer := buildTestCDIClient(t, tenantID, clusterID)
+			defer stopServer()
+			defer server.Close()
+			secret := config.CreateSecret(tc.certPem, tc.secretCase)
+			testConfig := &config.TestConfig{
+				Secret: secret,
+			}
+			kubeclient, dynamicclient := ku.CreateTestClient(t, testConfig)
+			controllers, stopController := ku.CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			defer stopController()
+			imTokenSource := &idManagerTokenSource{
+				cdiclient:       client,
+				kubecontrollers: controllers,
+			}
+
+			token, err := imTokenSource.Token()
+
+			if tc.expectedErr {
+				if err == nil {
+					t.Error("expected error, but got none")
+				}
+			} else if !tc.expectedErr {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if token.AccessToken != tc.expectedAccessToken {
+					t.Errorf("unexpected AccessToken, expected %s but got %s", tc.expectedAccessToken, token.AccessToken)
+				}
+				if token.TokenType != tc.expectedTokenType {
+					t.Errorf("unexpected TokenType, expected %s but got %s", tc.expectedTokenType, token.TokenType)
+				}
+				if token.RefreshToken != tc.expectedRefreshToken {
+					t.Errorf("unexpected RefreshToken, expected %s but got %s", tc.expectedRefreshToken, token.RefreshToken)
+				}
+				if token.Expiry != tc.expectedExpiry {
+					t.Errorf("unexpected token Expiry, expected %s but got %s", tc.expectedExpiry, token.Expiry)
+				}
+			}
+		})
+	}
+}
 
 func TestGetIdManagerSecret(t *testing.T) {
 	testCases := []struct {
@@ -19,7 +193,7 @@ func TestGetIdManagerSecret(t *testing.T) {
 		expectedClientSecret string
 	}{
 		{
-			name:                 "When correctly secret created",
+			name:                 "When correct secret is created",
 			secretCase:           1,
 			expectedErr:          false,
 			expectedUserName:     "user",
@@ -57,6 +231,12 @@ func TestGetIdManagerSecret(t *testing.T) {
 			secretCase:         6,
 			expectedErr:        true,
 			expectedErrMessage: "client_secret length exceeds the limitation",
+		},
+		{
+			name:             "When username in secret doesn't exceed limits of character count",
+			secretCase:       7,
+			expectedErr:      false,
+			expectedUserName: config.UnExceededSecretInfo,
 		},
 	}
 	for _, tc := range testCases {

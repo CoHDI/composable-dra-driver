@@ -121,9 +121,9 @@ func CreateNodeBMHMachines(num int, namespace string, useCapiBmh bool) (node *co
 				"metadata": map[string]interface{}{
 					"name":      fmt.Sprintf("test-bmh-%d", num),
 					"namespace": namespace,
-					"uid":       fmt.Sprintf("test-providerid-%d", num),
+					"uid":       fmt.Sprintf("00000000-0000-0000-0000-00000000000%d", num),
 					"annotations": map[string]interface{}{
-						"cluster-manager.cdi.io/machine": fmt.Sprintf("test-node-%d", num),
+						"cluster-manager.cdi.io/machine": fmt.Sprintf("00000000-0000-0000-0000-00000000000%d", num),
 					},
 				},
 			},
@@ -139,22 +139,8 @@ func CreateNodeBMHMachines(num int, namespace string, useCapiBmh bool) (node *co
 			Labels: map[string]string{},
 		},
 		Spec: corev1.NodeSpec{
-			ProviderID: fmt.Sprintf("test://test-providerid-%d", num),
+			ProviderID: fmt.Sprintf("test://00000000-0000-0000-0000-00000000000%d", num),
 		},
 	}
 	return node, bmh, machine
 }
-
-//func CreateBMHs(bmhNum int, namespace string) *unstructured.Unstructured {
-//	bmh := &unstructured.Unstructured{
-//		Object: map[string]interface{}{
-//			"kind":       "BareMetalHost",
-//			"apiVersion": Metal3APIVersion,
-//			"metadata": map[string]interface{}{
-//				"name":      fmt.Sprintf("test-bmh-%d", bmhNum),
-//				"namespace": namespace,
-//				"uid":       fmt.Sprintf("test-providerid-%d", bmhNum),
-//			},
-//		},
-//	}
-//}

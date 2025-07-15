@@ -23,6 +23,7 @@ const (
 )
 
 var ExceededSecretInfo string = RandomString(1000)
+var UnExceededSecretInfo string = RandomString(999)
 
 type TestConfig struct {
 	Spec       TestSpec
@@ -38,20 +39,46 @@ type TestSpec struct {
 	DRAenabled bool
 }
 
-func CreateConfigMap() ([]*corev1.ConfigMap, error) {
-	deviceInfos := []DeviceInfo{
-		{
-			Index:        1,
-			CDIModelName: "A100 40G",
-			DRAAttributes: map[string]string{
-				"productName": "NVIDIA A100 40GB PCIe",
-			},
-			DriverName:        "gpu.nvidia.com",
-			K8sDeviceName:     "nvidia-a100-40",
-			CanNotCoexistWith: []int{2, 3, 4},
+func CreateDeviceInfos() []DeviceInfo {
+	devInfo1 := DeviceInfo{
+		Index:        1,
+		CDIModelName: "DEVICE 1",
+		DRAAttributes: map[string]string{
+			"productName": "TEST DEVICE 1",
 		},
+		DriverName:        "test-driver-1",
+		K8sDeviceName:     "test-device-1",
+		CanNotCoexistWith: []int{2, 3},
+	}
+	devInfo2 := DeviceInfo{
+		Index:        2,
+		CDIModelName: "DEVICE 2",
+		DRAAttributes: map[string]string{
+			"productName": "TEST DEVICE 2",
+		},
+		DriverName:        "test-driver-1",
+		K8sDeviceName:     "test-device-2",
+		CanNotCoexistWith: []int{1, 3},
 	}
 
+	devInfo3 := DeviceInfo{
+		Index:        3,
+		CDIModelName: "DEVICE 3",
+		DRAAttributes: map[string]string{
+			"productName": "TEST DEVICE 3",
+		},
+		DriverName:        "test-driver-2",
+		K8sDeviceName:     "test-device-3",
+		CanNotCoexistWith: []int{1, 2},
+	}
+
+	devInfos := []DeviceInfo{devInfo1, devInfo2, devInfo3}
+
+	return devInfos
+}
+
+func CreateConfigMap() ([]*corev1.ConfigMap, error) {
+	deviceInfos := CreateDeviceInfos()
 	data, err := yaml.Marshal(deviceInfos)
 	if err != nil {
 		return nil, err
@@ -160,6 +187,27 @@ func CreateSecret(certPem string, secretCase int) *corev1.Secret {
 			ObjectMeta: secretObject,
 			Data: map[string][]byte{
 				"client_secret": []byte(ExceededSecretInfo),
+			},
+		}
+	case 7:
+		secret = &corev1.Secret{
+			TypeMeta:   secretType,
+			ObjectMeta: secretObject,
+			Data: map[string][]byte{
+				"username": []byte(UnExceededSecretInfo),
+			},
+		}
+	case 8:
+		secret = &corev1.Secret{
+			TypeMeta:   secretType,
+			ObjectMeta: secretObject,
+			Data: map[string][]byte{
+				"username":      []byte("user"),
+				"password":      []byte("pass"),
+				"realm":         []byte("Time_Test"),
+				"client_id":     []byte("0001"),
+				"client_secret": []byte("secret"),
+				"certificate":   []byte(certPem),
 			},
 		}
 	}

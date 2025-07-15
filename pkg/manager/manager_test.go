@@ -30,44 +30,6 @@ const (
 	nodeGroupNum = 3
 )
 
-func createDeviceInfos() []config.DeviceInfo {
-	devInfo1 := config.DeviceInfo{
-		Index:        1,
-		CDIModelName: "A100 40G",
-		DRAAttributes: map[string]string{
-			"productName": "NVIDIA A100 40GB PCIe",
-		},
-		DriverName:        "gpu.nvidia.com",
-		K8sDeviceName:     "nvidia-a100-40g",
-		CanNotCoexistWith: []int{2, 3},
-	}
-	devInfo2 := config.DeviceInfo{
-		Index:        2,
-		CDIModelName: "H100",
-		DRAAttributes: map[string]string{
-			"productName": "NVIDIA H100 PCIe",
-		},
-		DriverName:        "gpu.nvidia.com",
-		K8sDeviceName:     "nvidia-h100",
-		CanNotCoexistWith: []int{1, 3},
-	}
-
-	devInfo3 := config.DeviceInfo{
-		Index:        3,
-		CDIModelName: "Gaudi3",
-		DRAAttributes: map[string]string{
-			"productName": "Intel Gaudi3",
-		},
-		DriverName:        "gpu.resource.intel.com",
-		K8sDeviceName:     "intel-gaudi3",
-		CanNotCoexistWith: []int{1, 2},
-	}
-
-	devInfos := []config.DeviceInfo{devInfo1, devInfo2, devInfo3}
-
-	return devInfos
-}
-
 func createTestDriverResources() map[string]*resourceslice.DriverResources {
 	ndr := make(map[string]*resourceslice.DriverResources)
 
@@ -126,13 +88,15 @@ func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *ht
 	}
 	cfg := &config.Config{
 		CDIEndpoint: parsedURL.Host,
-		TenantID:    "0001",
-		ClusterID:   "0001",
+		TenantID:    "00000000-0000-0002-0000-000000000000",
+		ClusterID:   "00000000-0000-0000-0001-000000000000",
 	}
 	cdiClient, err := client.BuildCDIClient(cfg, kc)
 	if err != nil {
 		t.Fatalf("failed to build CDIClient: %v", err)
 	}
+
+	deviceInfos := config.CreateDeviceInfos()
 
 	return &CDIManager{
 		coreClient:           kubeclient,
@@ -141,6 +105,7 @@ func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *ht
 		cdiClient:            cdiClient,
 		kubecontrollers:      kc,
 		useCapiBmh:           testSpec.UseCapiBmh,
+		deviceInfos:          deviceInfos,
 		labelPrefix:          "cohdi.com",
 	}, server, stop
 
@@ -316,6 +281,116 @@ func TestCDIManagerStartResourceSliceController(t *testing.T) {
 	}
 }
 
+func TestCheckResourcePoolLoop(t *testing.T) {
+	testCases := []struct {
+		name                     string
+		useCapiBmh               bool
+		nodeName                 string
+		expectedErr              bool
+		expectedPoolName         string
+		expectedDriverName       string
+		expectedDeviceName       string
+		expectedProductName      string
+		expectedAvailableDevices int
+		expectedSliceNum         int
+		expectedFabric           string
+		expectedMaxDevice        string
+		expectedMinDevice        string
+	}{
+		{
+			name:                     "When the loop is done successfully",
+			useCapiBmh:               false,
+			nodeName:                 "test-node-0",
+			expectedSliceNum:         9,
+			expectedPoolName:         "test-device-1-fabric1",
+			expectedAvailableDevices: 2,
+			expectedFabric:           "1",
+			expectedDeviceName:       "test-device-1",
+			expectedMaxDevice:        "3",
+			expectedMinDevice:        "1",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			testSpec := config.TestSpec{
+				UseCapiBmh: tc.useCapiBmh,
+				DRAenabled: true,
+			}
+			m, server, stop := createTestManager(t, testSpec)
+			defer server.Close()
+			defer stop()
+			controlles := createTestControllers(t, m.coreClient)
+
+			err := m.startCheckResourcePoolLoop(context.Background(), controlles)
+
+			if tc.expectedErr {
+				if err == nil {
+					t.Error("expected error, but got none")
+				}
+			} else if !tc.expectedErr {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				time.Sleep(time.Second)
+				resourceslices, err := m.coreClient.ResourceV1beta2().ResourceSlices().List(context.Background(), metav1.ListOptions{})
+				if err != nil {
+					t.Errorf("unexpected error in kube client List")
+				}
+				if len(resourceslices.Items) != tc.expectedSliceNum {
+					t.Errorf("unexpected ResourceSlice num, expected 9, but got %d", len(resourceslices.Items))
+				}
+				sliceNumPerPool := make(map[string]int)
+				for _, resourceslice := range resourceslices.Items {
+					poolName := resourceslice.Spec.Pool.Name
+					if len(tc.expectedPoolName) > 0 && poolName == tc.expectedPoolName {
+						sliceNumPerPool[poolName]++
+						if sliceNumPerPool[poolName] > 1 {
+							t.Errorf("more than one slice exists in pool, pool name %s", poolName)
+						}
+						if len(tc.expectedDriverName) > 0 && resourceslice.Spec.Driver != tc.expectedDriverName {
+							t.Error("unexpected driver name in ResourceSlice")
+						}
+						if len(resourceslice.Spec.Devices) != tc.expectedAvailableDevices {
+							t.Errorf("unexpected device num, expected %d but got %d", tc.expectedAvailableDevices, len(resourceslice.Spec.Devices))
+						}
+						var deviceFound bool
+						for _, device := range resourceslice.Spec.Devices {
+							if len(tc.expectedDeviceName) > 0 && device.Name == tc.expectedDeviceName+"-gpu0" {
+								deviceFound = true
+								productName := device.Attributes["productName"]
+								if productName.StringValue != nil && len(tc.expectedProductName) > 0 && *productName.StringValue != tc.expectedProductName {
+									t.Errorf("unexpected ProductName, expected %s but got %s", tc.expectedProductName, *productName.StringValue)
+								}
+							}
+						}
+						if len(tc.expectedDeviceName) > 0 && !deviceFound {
+							t.Errorf("expected device is not found, expected %s", tc.expectedDeviceName)
+						}
+					}
+				}
+				node, err := m.coreClient.CoreV1().Nodes().Get(context.Background(), tc.nodeName, metav1.GetOptions{})
+				if err != nil {
+					t.Fatalf("not found node, node name: %s", tc.nodeName)
+				}
+				if node != nil {
+					if node.Labels["cohdi.com/fabric"] != tc.expectedFabric {
+						t.Errorf("unexpected label of fabric id, expected %s but got %s", node.Labels["cohdi.com/fabric"], tc.expectedFabric)
+					}
+					maxLabel := fmt.Sprintf("cohdi.com/%s-size-max", tc.expectedDeviceName)
+					if node.Labels[maxLabel] != tc.expectedMaxDevice {
+						t.Errorf("unexpected label of max device num, expected %s but got %s", tc.expectedMaxDevice, node.Labels[maxLabel])
+					}
+					minLabel := fmt.Sprintf("cohdi.com/%s-size-min", tc.expectedDeviceName)
+					if node.Labels[minLabel] != tc.expectedMinDevice {
+						t.Errorf("unexpected label of min device num, expected %s but got %s", tc.expectedMinDevice, node.Labels[minLabel])
+					}
+				}
+			}
+
+		})
+	}
+}
+
 func TestCDIManagerGetMachineUUID(t *testing.T) {
 	testCases := []struct {
 		name                string
@@ -331,7 +406,7 @@ func TestCDIManagerGetMachineUUID(t *testing.T) {
 			nodeName:            "test-node-0",
 			useCapiBmh:          true,
 			expectedErr:         false,
-			expectedMachineUUID: "test-node-0",
+			expectedMachineUUID: "00000000-0000-0000-0000-000000000000",
 		},
 		{
 			name:                "When correct machine uuid is got if useCapiBmh is false",
@@ -339,7 +414,7 @@ func TestCDIManagerGetMachineUUID(t *testing.T) {
 			nodeName:            "test-node-1",
 			useCapiBmh:          false,
 			expectedErr:         false,
-			expectedMachineUUID: "test-providerid-1",
+			expectedMachineUUID: "00000000-0000-0000-0000-000000000001",
 		},
 	}
 	for _, tc := range testCases {
@@ -374,7 +449,7 @@ func TestCDIManagerGetMachineList(t *testing.T) {
 	}{
 		{
 			name:        "When correctly getting machine list",
-			nodeCount:   1,
+			nodeCount:   9,
 			useCapiBmh:  true,
 			expectedErr: false,
 		},
@@ -396,8 +471,10 @@ func TestCDIManagerGetMachineList(t *testing.T) {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
-				if len(mList.Data.Machines) != tc.nodeCount {
-					t.Errorf("unexpected node length, expected %d but got %d", tc.nodeCount, len(mList.Data.Machines))
+				if mList != nil {
+					if len(mList.Data.Machines) != tc.nodeCount {
+						t.Errorf("unexpected node length, expected %d but got %d", tc.nodeCount, len(mList.Data.Machines))
+					}
 				}
 			}
 
@@ -408,7 +485,6 @@ func TestCDIManagerGetMachineList(t *testing.T) {
 func TestCDIManagerGetAvailableNums(t *testing.T) {
 	testCases := []struct {
 		name                               string
-		nodeCount                          int
 		machineUUID                        string
 		modelName                          string
 		useCapiBmh                         bool
@@ -417,12 +493,11 @@ func TestCDIManagerGetAvailableNums(t *testing.T) {
 	}{
 		{
 			name:                               "When correctly getting available number of fabric devices in resource pool",
-			nodeCount:                          1,
-			machineUUID:                        "0001",
-			modelName:                          "A100",
+			machineUUID:                        "00000000-0000-0000-0000-000000000000",
+			modelName:                          "DEVICE 1",
 			useCapiBmh:                         true,
 			expectedErr:                        false,
-			expectedAvailableReservedResources: 5,
+			expectedAvailableReservedResources: 2,
 		},
 	}
 	for _, tc := range testCases {
@@ -453,17 +528,15 @@ func TestCDIManagerGetAvailableNums(t *testing.T) {
 func TestCDIManagerGetNodeGroups(t *testing.T) {
 	testCases := []struct {
 		name                    string
-		nodeCount               int
 		useCapiBmh              bool
 		expectedErr             bool
 		expectedNodeGroupLength int
 	}{
 		{
 			name:                    "When correctly getting node groups",
-			nodeCount:               1,
 			useCapiBmh:              true,
 			expectedErr:             false,
-			expectedNodeGroupLength: 1,
+			expectedNodeGroupLength: 3,
 		},
 	}
 	for _, tc := range testCases {
@@ -483,8 +556,10 @@ func TestCDIManagerGetNodeGroups(t *testing.T) {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
-				if len(nodeGroups.NodeGroups) != tc.expectedNodeGroupLength {
-					t.Errorf("unexpected node groups length, expected %d but got %d", tc.expectedNodeGroupLength, len(nodeGroups.NodeGroups))
+				if nodeGroups != nil {
+					if len(nodeGroups.NodeGroups) != tc.expectedNodeGroupLength {
+						t.Errorf("unexpected node groups length, expected %d but got %d", tc.expectedNodeGroupLength, len(nodeGroups.NodeGroups))
+					}
 				}
 			}
 		})
@@ -494,7 +569,6 @@ func TestCDIManagerGetNodeGroups(t *testing.T) {
 func TestCDIManagerGetNodeGroupInfo(t *testing.T) {
 	testCases := []struct {
 		name                  string
-		nodeCount             int
 		useCapiBmh            bool
 		nodeGroup             client.CMNodeGroup
 		machineUUID           string
@@ -503,14 +577,13 @@ func TestCDIManagerGetNodeGroupInfo(t *testing.T) {
 	}{
 		{
 			name:       "When correctly getting node group info",
-			nodeCount:  1,
 			useCapiBmh: true,
 			nodeGroup: client.CMNodeGroup{
-				UUID: "0001",
+				UUID: "10000000-0000-0000-0000-000000000000",
 			},
-			machineUUID:           "0001",
+			machineUUID:           "00000000-0000-0000-0000-000000000000",
 			expectedErr:           false,
-			expectedNodeGroupUUID: "0001",
+			expectedNodeGroupUUID: "10000000-0000-0000-0000-000000000000",
 		},
 	}
 	for _, tc := range testCases {
@@ -530,10 +603,12 @@ func TestCDIManagerGetNodeGroupInfo(t *testing.T) {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
-				for _, machineID := range nodeGroupInfo.MachineIDs {
-					if machineID == tc.machineUUID {
-						if nodeGroupInfo.UUID != tc.expectedNodeGroupUUID {
-							t.Errorf("unexpected node group UUID, expected %s, but got %s", tc.expectedNodeGroupUUID, nodeGroupInfo.UUID)
+				if nodeGroupInfo != nil {
+					for _, machineID := range nodeGroupInfo.MachineIDs {
+						if machineID == tc.machineUUID {
+							if nodeGroupInfo.UUID != tc.expectedNodeGroupUUID {
+								t.Errorf("unexpected node group UUID, expected %s, but got %s", tc.expectedNodeGroupUUID, nodeGroupInfo.UUID)
+							}
 						}
 					}
 				}
@@ -545,7 +620,6 @@ func TestCDIManagerGetNodeGroupInfo(t *testing.T) {
 func TestCDIManagerGetMinMaxNums(t *testing.T) {
 	testCases := []struct {
 		name        string
-		nodeCount   int
 		useCapiBmh  bool
 		machineUUID string
 		modelName   string
@@ -555,10 +629,9 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 	}{
 		{
 			name:        "When correctly getting min/max number of fabric devices",
-			nodeCount:   1,
 			useCapiBmh:  true,
-			machineUUID: "0001",
-			modelName:   "A100",
+			machineUUID: "00000000-0000-0000-0000-000000000000",
+			modelName:   "DEVICE 1",
 			expectedErr: false,
 			expectedMin: 1,
 			expectedMax: 3,
@@ -783,27 +856,27 @@ func TestCDIManagerGeneratePool(t *testing.T) {
 			name:          "When correctly provided device",
 			useCapiBmh:    false,
 			nodeCount:     1,
-			k8sDeviceName: "nvidia-a100-40g",
+			k8sDeviceName: "test-device-1",
 			draAttributes: map[string]string{
-				"productName": "NVIDIA A100 40GB PCIe",
+				"productName": "TEST DEVICE 1",
 			},
 			availableDeviceCount: 3,
 			bindingTimeout:       ptr.To(int64(600)),
-			expectedDeviceName:   "nvidia-a100-40g-gpu0",
-			expectedLabel:        "cohdi.com/nvidia-a100-40g",
+			expectedDeviceName:   "test-device-1-gpu0",
+			expectedLabel:        "cohdi.com/test-device-1",
 		},
 		{
 			name:          "When bindingTimeout is nil",
 			useCapiBmh:    false,
 			nodeCount:     1,
-			k8sDeviceName: "nvidia-a100-40g",
+			k8sDeviceName: "test-device-1",
 			draAttributes: map[string]string{
-				"productName": "NVIDIA A100 40GB PCIe",
+				"productName": "TEST DEVICE 1",
 			},
 			availableDeviceCount: 3,
 			bindingTimeout:       nil,
-			expectedDeviceName:   "nvidia-a100-40g-gpu0",
-			expectedLabel:        "cohdi.com/nvidia-a100-40g",
+			expectedDeviceName:   "test-device-1-gpu0",
+			expectedLabel:        "cohdi.com/test-device-1",
 		},
 	}
 	for _, tc := range testCases {
@@ -920,7 +993,7 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 }
 
 func TestInitDrvierResources(t *testing.T) {
-	deviceInfos := createDeviceInfos()
+	deviceInfos := config.CreateDeviceInfos()
 
 	testCases := []struct {
 		name                string
@@ -930,7 +1003,7 @@ func TestInitDrvierResources(t *testing.T) {
 	}{
 		{
 			name:                "When correct DeviceInfo provided",
-			expectedDriverNames: []string{"gpu.nvidia.com", "gpu.resource.intel.com"},
+			expectedDriverNames: []string{"test-driver-1", "test-driver-2"},
 			expectedDRLength:    2,
 			expectedDR: &resourceslice.DriverResources{
 				Pools: make(map[string]resourceslice.Pool),
@@ -969,13 +1042,13 @@ func TestGetFabricID(t *testing.T) {
 				Data: client.FMMachines{
 					Machines: []client.FMMachine{
 						{
-							MachineUUID: "0001",
+							MachineUUID: "00000000-0000-0000-0000-000000000001",
 							FabricID:    ptr.To(1),
 						},
 					},
 				},
 			},
-			machineUUID:      "0001",
+			machineUUID:      "00000000-0000-0000-0000-000000000001",
 			expectedErr:      false,
 			expectedFabricID: ptr.To(1),
 		},
@@ -985,12 +1058,12 @@ func TestGetFabricID(t *testing.T) {
 				Data: client.FMMachines{
 					Machines: []client.FMMachine{
 						{
-							MachineUUID: "0002",
+							MachineUUID: "00000000-0000-0000-0000-000000000002",
 						},
 					},
 				},
 			},
-			machineUUID:      "0002",
+			machineUUID:      "00000000-0000-0000-0000-000000000002",
 			expectedErr:      false,
 			expectedFabricID: nil,
 		},

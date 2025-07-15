@@ -386,29 +386,29 @@ func (m *CDIManager) getMachineList(ctx context.Context) (*client.FMMachineList,
 
 func (m *CDIManager) getAvailableNums(ctx context.Context, muuid string, modelName string) (int, error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
-	slog.Info("trying to get available reserved resources from FabricManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	slog.Info("trying to get available reserved resources from FabricManager", "machineUUID", muuid, "modelName", modelName, "requestID", client.GetRequestIdFromContext(ctx))
 
 	// Publish API to get available reserved resources from FabricManager
 	availableResources, err := m.cdiClient.GetFMAvailableReservedResources(ctx, muuid, modelName)
 	if err != nil {
-		slog.Error("FM available reserved resources API failed", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+		slog.Error("FM available reserved resources API failed", "requestID", client.GetRequestIdFromContext(ctx))
 		return 0, err
 	}
-	slog.Info("FM available reserved resources API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	slog.Info("FM available reserved resources API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	return availableResources.ReservedResourceNum, nil
 }
 
 func (m *CDIManager) getNodeGroups(ctx context.Context) (*client.CMNodeGroups, error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
-	slog.Info("trying to get node groups from ClusterManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	slog.Info("trying to get node groups from ClusterManager", "requestID", client.GetRequestIdFromContext(ctx))
 
 	// Publish API to get node groups from ClusterManager
 	nodeGroups, err := m.cdiClient.GetCMNodeGroups(ctx)
 	if err != nil {
-		slog.Error("CM node groups API failed", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+		slog.Error("CM node groups API failed", "requestID", client.GetRequestIdFromContext(ctx))
 		return nil, err
 	}
-	slog.Info("CM node groups API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	slog.Info("CM node groups API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	for _, nodeGroup := range nodeGroups.NodeGroups {
 		slog.Debug("got node groups", "NodeGroupName", nodeGroup.Name, "UUID", nodeGroup.UUID)
 	}
@@ -417,15 +417,15 @@ func (m *CDIManager) getNodeGroups(ctx context.Context) (*client.CMNodeGroups, e
 
 func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.CMNodeGroup) (*client.CMNodeGroupInfo, error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
-	slog.Info("trying to get node group info from ClusterManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	slog.Info("trying to get node group info from ClusterManager", "nodeGroupName", nodeGroup.Name, "requestID", client.GetRequestIdFromContext(ctx))
 
 	// Publish API to get a node group info from ClusterManager
 	nodeGroupInfo, err := m.cdiClient.GetCMNodeGroupInfo(ctx, nodeGroup)
 	if err != nil {
-		slog.Error("CM node group info API failed", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+		slog.Error("CM node group info API failed", "requestID", client.GetRequestIdFromContext(ctx))
 		return nil, err
 	}
-	slog.Info("CM node group info API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	slog.Info("CM node group info API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	for _, machineID := range nodeGroupInfo.MachineIDs {
 		slog.Debug("got node group info, the machine belongs in the node group", "machineUUID", machineID, "NodeGroupName", nodeGroupInfo.Name)
 	}
@@ -438,15 +438,15 @@ func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.CMNo
 
 func (m *CDIManager) getMinMaxNums(ctx context.Context, muuid string, modelName string) (min *int, max *int, error error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
-	slog.Info("trying to get node details from ClusterManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	slog.Info("trying to get node details from ClusterManager", "machineUUID", muuid, "modelName", modelName, "requestID", client.GetRequestIdFromContext(ctx))
 
 	// Publish API to get node details from ClusterManager
 	nodeDetails, err := m.cdiClient.GetCMNodeDetails(ctx, muuid)
 	if err != nil {
-		slog.Error("CM node details API failed", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+		slog.Error("CM node details API failed", "requestID", client.GetRequestIdFromContext(ctx))
 		return nil, nil, err
 	}
-	slog.Info("CM node details API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	slog.Info("CM node details API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	for _, resspec := range nodeDetails.Data.Cluster.Machine.ResSpecs {
 		for _, condition := range resspec.Selector.Expression.Conditions {
 			if condition.Column == "model" && condition.Operator == "eq" && condition.Value == modelName {
