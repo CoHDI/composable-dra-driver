@@ -18,12 +18,19 @@ package kube_utils
 
 import (
 	"cdi_dra/pkg/config"
+	"log/slog"
+	"os"
 	"slices"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
+
+func init() {
+	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
+	slog.SetDefault(slog.New(handler))
+}
 
 func TestGroupVersionHasResource(t *testing.T) {
 	testCases := []struct {

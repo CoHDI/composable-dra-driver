@@ -22,8 +22,10 @@ import (
 	ku "cdi_dra/pkg/kube_utils"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"reflect"
 	"strconv"
 	"sync"
@@ -45,6 +47,11 @@ const (
 	fabricIdNum  = 3
 	nodeGroupNum = 3
 )
+
+func init() {
+	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
+	slog.SetDefault(slog.New(handler))
+}
 
 func createTestDriverResources() map[string]*resourceslice.DriverResources {
 	ndr := make(map[string]*resourceslice.DriverResources)

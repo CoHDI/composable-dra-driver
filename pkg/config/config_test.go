@@ -17,12 +17,19 @@ limitations under the License.
 package config
 
 import (
+	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 )
+
+func init() {
+	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
+	slog.SetDefault(slog.New(handler))
+}
 
 func TestGetDeviceInfos(t *testing.T) {
 	cms, err := CreateConfigMap()
