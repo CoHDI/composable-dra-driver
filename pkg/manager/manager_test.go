@@ -145,18 +145,19 @@ func createResourceSliceCreateReactor() func(action k8stesting.Action) (handled 
 func createTestMachines(availableDeviceCount int) []*machine {
 	var machines []*machine
 	for i := 0; i < config.TestNodeCount; i++ {
+		nodeGroupUUID := fmt.Sprintf("%d0000000-0000-0000-0000-000000000000", (i/nodeGroupNum)+1)
 		machine := &machine{
 			nodeName:      "test-node-" + strconv.Itoa(i),
 			fabricID:      ptr.To((i % fabricIdNum) + 1),
-			nodeGroupUUID: strconv.Itoa((i / nodeGroupNum) + 1),
+			nodeGroupUUID: nodeGroupUUID,
 		}
-		machine.deviceList = createTestDeviceList(availableDeviceCount)
+		machine.deviceList = createTestDeviceList(availableDeviceCount, nodeGroupUUID)
 		machines = append(machines, machine)
 	}
 	return machines
 }
 
-func createTestDeviceList(availableNum int) deviceList {
+func createTestDeviceList(availableNum int, nodeGroupUUID string) deviceList {
 	deviceList := deviceList{
 		"DEVICE 1": &device{
 			k8sDeviceName: "test-device-1",
@@ -165,8 +166,6 @@ func createTestDeviceList(availableNum int) deviceList {
 				"productName": "TEST DEVICE 1",
 			},
 			availableDeviceCount: availableNum,
-			minDeviceCount:       ptr.To(1),
-			maxDeviceCount:       ptr.To(6),
 		},
 		"DEVICE 2": &device{
 			k8sDeviceName:        "test-device-2",
@@ -181,6 +180,33 @@ func createTestDeviceList(availableNum int) deviceList {
 			},
 			availableDeviceCount: availableNum,
 		},
+	}
+	if nodeGroupUUID == "10000000-0000-0000-0000-000000000000" {
+		for deviceName := range deviceList {
+			deviceList[deviceName].minDeviceCount = ptr.To(1)
+			deviceList[deviceName].maxDeviceCount = ptr.To(3)
+		}
+	}
+	if nodeGroupUUID == "20000000-0000-0000-0000-000000000000" {
+		for deviceName := range deviceList {
+			deviceList[deviceName].minDeviceCount = ptr.To(2)
+			deviceList[deviceName].maxDeviceCount = ptr.To(6)
+		}
+	}
+	if nodeGroupUUID == "30000000-0000-0000-0000-000000000000" {
+		for deviceName := range deviceList {
+			deviceList[deviceName].minDeviceCount = ptr.To(3)
+			deviceList[deviceName].maxDeviceCount = ptr.To(12)
+		}
+	}
+	// Add a device to check if it is no problem that min/max device count is nil
+	deviceList["DEVICE 4"] = &device{
+		k8sDeviceName: "test-device-4",
+		driverName:    "test-driver-3",
+		draAttributes: map[string]string{
+			"productName": "TEST DEVICE 4",
+		},
+		availableDeviceCount: availableNum,
 	}
 	return deviceList
 }
@@ -831,7 +857,8 @@ func TestCDIManagerUpdatePool(t *testing.T) {
 			m, _, stop := createTestManager(t, testSpec)
 			defer stop()
 			for i, availableNum := range tc.availableDeviceCount {
-				deviceList := createTestDeviceList(availableNum)
+				nodeGroup := "10000000-0000-0000-0000-000000000000"
+				deviceList := createTestDeviceList(availableNum, nodeGroup)
 				device := deviceList["DEVICE 1"]
 				poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(tc.fabricID)
 				var updated bool
@@ -942,8 +969,8 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 		nodeName          string
 		deviceName        string
 		expectedFabric    string
-		expectedMaxDevice string
 		expectedMinDevice string
+		expectedMaxDevice string
 		expectedErr       bool
 	}{
 		{
@@ -951,14 +978,14 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 			nodeName:          "test-node-0",
 			deviceName:        "test-device-1",
 			expectedFabric:    "1",
-			expectedMaxDevice: "6",
 			expectedMinDevice: "1",
+			expectedMaxDevice: "3",
 			expectedErr:       false,
 		},
 		{
 			name:              "When device min and max is nil",
 			nodeName:          "test-node-0",
-			deviceName:        "test-device-2",
+			deviceName:        "test-device-4",
 			expectedFabric:    "1",
 			expectedMaxDevice: "",
 			expectedMinDevice: "",

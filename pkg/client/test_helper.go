@@ -292,6 +292,34 @@ func createTestNodeDetails(nodeCount int) []CMNodeDetails {
 									},
 								},
 							},
+							{
+								Type: "gpu",
+								Selector: CMSelector{
+									Expression: CMExpression{
+										Conditions: []Condition{
+											{
+												Column:   "model",
+												Operator: "eq",
+												Value:    "DEVICE 2",
+											},
+										},
+									},
+								},
+							},
+							{
+								Type: "gpu",
+								Selector: CMSelector{
+									Expression: CMExpression{
+										Conditions: []Condition{
+											{
+												Column:   "model",
+												Operator: "eq",
+												Value:    "DEVICE 3",
+											},
+										},
+									},
+								},
+							},
 						},
 					},
 				},
@@ -299,14 +327,20 @@ func createTestNodeDetails(nodeCount int) []CMNodeDetails {
 		}
 		switch i / 3 {
 		case 0:
-			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MinResSpecCount = ptr.To(1)
-			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MaxResSpecCount = ptr.To(3)
+			for i := range nodeDetail.Data.Cluster.Machine.ResSpecs {
+				nodeDetail.Data.Cluster.Machine.ResSpecs[i].MinResSpecCount = ptr.To(1)
+				nodeDetail.Data.Cluster.Machine.ResSpecs[i].MaxResSpecCount = ptr.To(3)
+			}
 		case 1:
-			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MinResSpecCount = ptr.To(2)
-			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MaxResSpecCount = ptr.To(6)
+			for i := range nodeDetail.Data.Cluster.Machine.ResSpecs {
+				nodeDetail.Data.Cluster.Machine.ResSpecs[i].MinResSpecCount = ptr.To(2)
+				nodeDetail.Data.Cluster.Machine.ResSpecs[i].MaxResSpecCount = ptr.To(6)
+			}
 		case 2:
-			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MinResSpecCount = ptr.To(3)
-			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MaxResSpecCount = ptr.To(12)
+			for i := range nodeDetail.Data.Cluster.Machine.ResSpecs {
+				nodeDetail.Data.Cluster.Machine.ResSpecs[i].MinResSpecCount = ptr.To(3)
+				nodeDetail.Data.Cluster.Machine.ResSpecs[i].MaxResSpecCount = ptr.To(12)
+			}
 		}
 		nodeDetails = append(nodeDetails, nodeDetail)
 	}
