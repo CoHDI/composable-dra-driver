@@ -207,6 +207,7 @@ var testAvailableReservedResources = map[string][]FMAvailableReservedResources{
 var testNodeGroups1 = CMNodeGroups{
 	NodeGroups: []CMNodeGroup{
 		{
+			Name: "NodeGroup1",
 			UUID: "10000000-0000-0000-0000-000000000000",
 		},
 	},
@@ -232,6 +233,7 @@ var testNodeGroups2 = CMNodeGroups{
 var testNodeGroupInfos1 = []CMNodeGroupInfo{
 	{
 		UUID: "10000000-0000-0000-0000-000000000000",
+		Name: "NodeGroup1",
 		MachineIDs: []string{
 			"00000000-0000-0000-0000-000000000000",
 		},
@@ -241,6 +243,7 @@ var testNodeGroupInfos1 = []CMNodeGroupInfo{
 var testNodeGroupInfos2 = []CMNodeGroupInfo{
 	{
 		UUID: "10000000-0000-0000-0000-000000000000",
+		Name: "NodeGroup1",
 		MachineIDs: []string{
 			"00000000-0000-0000-0000-000000000000",
 			"00000000-0000-0000-0000-000000000001",
@@ -249,6 +252,7 @@ var testNodeGroupInfos2 = []CMNodeGroupInfo{
 	},
 	{
 		UUID: "20000000-0000-0000-0000-000000000000",
+		Name: "NodeGroup2",
 		MachineIDs: []string{
 			"00000000-0000-0000-0000-000000000003",
 			"00000000-0000-0000-0000-000000000004",
@@ -257,6 +261,7 @@ var testNodeGroupInfos2 = []CMNodeGroupInfo{
 	},
 	{
 		UUID: "30000000-0000-0000-0000-000000000000",
+		Name: "NodeGroup3",
 		MachineIDs: []string{
 			"00000000-0000-0000-0000-000000000006",
 			"00000000-0000-0000-0000-000000000007",

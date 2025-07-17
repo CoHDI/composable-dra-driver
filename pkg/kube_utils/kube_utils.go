@@ -300,7 +300,7 @@ func (kc *KubeControllers) ListProviderIDs() ([]normalizedProviderID, error) {
 			slog.Warn("node has no providerID", "name", node.GetName())
 		}
 	}
-	slog.Info("the number of providerIDs", "providerIDNum", len(providerIDs))
+	slog.Debug("the number of providerIDs", "providerIDNum", len(providerIDs))
 	return providerIDs, nil
 }
 

@@ -209,7 +209,7 @@ func createTestDeviceList(availableNum int, nodeGroupUUID string) deviceList {
 	// Add a device to check if it is no problem that min/max device count is nil
 	deviceList["DEVICE 4"] = &device{
 		k8sDeviceName: "test-device-4",
-		driverName:    "test-driver-3",
+		driverName:    "test-driver-2",
 		draAttributes: map[string]string{
 			"productName": "TEST DEVICE 4",
 		},

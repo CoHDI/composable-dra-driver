@@ -215,7 +215,7 @@ func (c *CDIClient) GetIMToken(ctx context.Context, secret idManagerSecret) (*IM
 
 	req := r.setHost(c.Host).setPath(path).setBody(data).setHeader("Content-Type", "application/x-www-form-urlencoded")
 
-	slog.Info("connecting", "url", req.url().String())
+	slog.Debug("connecting", "url", req.url().String())
 	httpReq, err := newHTTPRequest(req)
 	if err != nil {
 		return nil, err
@@ -245,6 +245,7 @@ func (c *CDIClient) GetFMMachineList(ctx context.Context) (*FMMachineList, error
 	}
 	req := r.setHost(c.Host).setPath(path).setQuery(query).setHeader("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
 
+	slog.Debug("connecting", "url", req.url().String())
 	httpReq, err := newHTTPRequest(req)
 	if err != nil {
 		return nil, err
@@ -285,6 +286,7 @@ func (c *CDIClient) GetFMAvailableReservedResources(ctx context.Context, muuid s
 	}
 	req := r.setHost(c.Host).setPath(path).setQuery(query).setHeader("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
 
+	slog.Debug("connecting", "url", req.url().String())
 	httpReq, err := newHTTPRequest(req)
 	if err != nil {
 		return nil, err
@@ -311,6 +313,7 @@ func (c *CDIClient) GetCMNodeGroups(ctx context.Context) (*CMNodeGroups, error) 
 	}
 	req := r.setHost(c.Host).setPath(path).setHeader("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
 
+	slog.Debug("connecting", "url", req.url().String())
 	httpReq, err := newHTTPRequest(req)
 	if err != nil {
 		return nil, err
@@ -337,6 +340,7 @@ func (c *CDIClient) GetCMNodeGroupInfo(ctx context.Context, ng CMNodeGroup) (*CM
 	}
 	req := r.setHost(c.Host).setPath(path).setHeader("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
 
+	slog.Debug("connecting", "url", req.url().String())
 	httpReq, err := newHTTPRequest(req)
 	if err != nil {
 		return nil, err
@@ -363,6 +367,7 @@ func (c *CDIClient) GetCMNodeDetails(ctx context.Context, muuid string) (*CMNode
 	}
 	req := r.setHost(c.Host).setPath(path).setHeader("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
 
+	slog.Debug("connecting", "url", req.url().String())
 	httpReq, err := newHTTPRequest(req)
 	if err != nil {
 		return nil, err

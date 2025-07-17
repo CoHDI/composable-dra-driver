@@ -181,7 +181,7 @@ func (m *CDIManager) startResourceSliceController(ctx context.Context) (map[stri
 			KubeClient: m.coreClient,
 			Resources:  driverResource,
 		}
-		slog.Info("Start publishing ResourceSlices for CDI fabric devices...", "driverName", driverName)
+		slog.Debug("Start publishing ResourceSlices for CDI fabric devices...", "driverName", driverName)
 		controller, err := resourceslice.StartController(ctx, options)
 		if err != nil {
 			slog.Error("error starting resource slice controller", "error", err)
@@ -385,15 +385,15 @@ func (m *CDIManager) getMachineUUIDs() (map[string]string, error) {
 
 func (m *CDIManager) getMachineList(ctx context.Context) (*client.FMMachineList, error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
-	slog.Info("trying to get machine list from FabricManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	slog.Debug("trying to get machine list from FabricManager", "requestID", client.GetRequestIdFromContext(ctx))
 
 	// Publish API to get a machine list from FabricManager
 	mList, err := m.cdiClient.GetFMMachineList(ctx)
 	if err != nil {
-		slog.Error("FM machine list API failed", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+		slog.Error("FM machine list API failed", "requestID", client.GetRequestIdFromContext(ctx))
 		return nil, err
 	}
-	slog.Info("FM machine list API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	slog.Debug("FM machine list API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	for _, machine := range mList.Data.Machines {
 		slog.Debug("got machine list", "machineUUID", machine.MachineUUID, "fabricID", safeReference(machine.FabricID))
 	}
@@ -402,7 +402,7 @@ func (m *CDIManager) getMachineList(ctx context.Context) (*client.FMMachineList,
 
 func (m *CDIManager) getAvailableNums(ctx context.Context, muuid string, modelName string) (int, error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
-	slog.Info("trying to get available reserved resources from FabricManager", "machineUUID", muuid, "modelName", modelName, "requestID", client.GetRequestIdFromContext(ctx))
+	slog.Debug("trying to get available reserved resources from FabricManager", "machineUUID", muuid, "modelName", modelName, "requestID", client.GetRequestIdFromContext(ctx))
 
 	// Publish API to get available reserved resources from FabricManager
 	availableResources, err := m.cdiClient.GetFMAvailableReservedResources(ctx, muuid, modelName)
@@ -410,13 +410,13 @@ func (m *CDIManager) getAvailableNums(ctx context.Context, muuid string, modelNa
 		slog.Error("FM available reserved resources API failed", "requestID", client.GetRequestIdFromContext(ctx))
 		return 0, err
 	}
-	slog.Info("FM available reserved resources API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
+	slog.Debug("FM available reserved resources API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	return availableResources.ReservedResourceNum, nil
 }
 
 func (m *CDIManager) getNodeGroups(ctx context.Context) (*client.CMNodeGroups, error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
-	slog.Info("trying to get node groups from ClusterManager", "requestID", client.GetRequestIdFromContext(ctx))
+	slog.Debug("trying to get node groups from ClusterManager", "requestID", client.GetRequestIdFromContext(ctx))
 
 	// Publish API to get node groups from ClusterManager
 	nodeGroups, err := m.cdiClient.GetCMNodeGroups(ctx)
@@ -424,7 +424,7 @@ func (m *CDIManager) getNodeGroups(ctx context.Context) (*client.CMNodeGroups, e
 		slog.Error("CM node groups API failed", "requestID", client.GetRequestIdFromContext(ctx))
 		return nil, err
 	}
-	slog.Info("CM node groups API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
+	slog.Debug("CM node groups API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	for _, nodeGroup := range nodeGroups.NodeGroups {
 		slog.Debug("got node groups", "NodeGroupName", nodeGroup.Name, "UUID", nodeGroup.UUID)
 	}
@@ -433,7 +433,7 @@ func (m *CDIManager) getNodeGroups(ctx context.Context) (*client.CMNodeGroups, e
 
 func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.CMNodeGroup) (*client.CMNodeGroupInfo, error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
-	slog.Info("trying to get node group info from ClusterManager", "nodeGroupName", nodeGroup.Name, "requestID", client.GetRequestIdFromContext(ctx))
+	slog.Debug("trying to get node group info from ClusterManager", "nodeGroupName", nodeGroup.Name, "requestID", client.GetRequestIdFromContext(ctx))
 
 	// Publish API to get a node group info from ClusterManager
 	nodeGroupInfo, err := m.cdiClient.GetCMNodeGroupInfo(ctx, nodeGroup)
@@ -441,7 +441,7 @@ func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.CMNo
 		slog.Error("CM node group info API failed", "requestID", client.GetRequestIdFromContext(ctx))
 		return nil, err
 	}
-	slog.Info("CM node group info API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
+	slog.Debug("CM node group info API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	for _, machineID := range nodeGroupInfo.MachineIDs {
 		slog.Debug("got node group info, the machine belongs in the node group", "machineUUID", machineID, "NodeGroupName", nodeGroupInfo.Name)
 	}
@@ -454,7 +454,7 @@ func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.CMNo
 
 func (m *CDIManager) getMinMaxNums(ctx context.Context, muuid string, modelName string) (min *int, max *int, error error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
-	slog.Info("trying to get node details from ClusterManager", "machineUUID", muuid, "modelName", modelName, "requestID", client.GetRequestIdFromContext(ctx))
+	slog.Debug("trying to get node details from ClusterManager", "machineUUID", muuid, "modelName", modelName, "requestID", client.GetRequestIdFromContext(ctx))
 
 	// Publish API to get node details from ClusterManager
 	nodeDetails, err := m.cdiClient.GetCMNodeDetails(ctx, muuid)
@@ -462,7 +462,7 @@ func (m *CDIManager) getMinMaxNums(ctx context.Context, muuid string, modelName 
 		slog.Error("CM node details API failed", "requestID", client.GetRequestIdFromContext(ctx))
 		return nil, nil, err
 	}
-	slog.Info("CM node details API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
+	slog.Debug("CM node details API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	for _, resspec := range nodeDetails.Data.Cluster.Machine.ResSpecs {
 		for _, condition := range resspec.Selector.Expression.Conditions {
 			if condition.Column == "model" && condition.Operator == "eq" && condition.Value == modelName {
@@ -488,7 +488,6 @@ func (m *CDIManager) manageCDIResourceSlices(machines []*machine, controlles map
 					poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(*machine.fabricID)
 					updated := m.updatePool(device.driverName, poolName, device, *machine.fabricID)
 					if updated {
-						slog.Info("pool update needed", "poolName", poolName, "generation", m.namedDriverResources[device.driverName].Pools[poolName].Generation, "driver", device.driverName)
 						needUpdate[device.driverName] = true
 					}
 				}
@@ -499,6 +498,9 @@ func (m *CDIManager) manageCDIResourceSlices(machines []*machine, controlles map
 	for driverName, driverResources := range m.namedDriverResources {
 		if needUpdate[driverName] {
 			c := controlles[driverName]
+			for poolName := range driverResources.Pools {
+				slog.Info("pool update", "poolName", poolName, "generation", m.namedDriverResources[driverName].Pools[poolName].Generation, "driver", driverName)
+			}
 			c.Update(driverResources)
 		}
 	}
