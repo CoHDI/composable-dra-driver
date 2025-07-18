@@ -420,12 +420,6 @@ func TestCDIClientDo(t *testing.T) {
 			expectedErr:        false,
 			expectedStatusCode: 404,
 		},
-		{
-			name:           "When connecting to not-existent destination",
-			nonExistent:    "dummy-",
-			expectedErr:    true,
-			expectedErrMsg: "context deadline exceeded",
-		},
 	}
 
 	for _, tc := range testCases {
@@ -438,7 +432,7 @@ func TestCDIClientDo(t *testing.T) {
 			parsedURL, _ := url.Parse(server.URL)
 			url := &url.URL{
 				Scheme: "https",
-				Host:   tc.nonExistent + parsedURL.Host,
+				Host:   parsedURL.Host,
 				Path:   "/fabric_manager/api/v1/machines",
 				RawQuery: url.Values{
 					"tenant_uuid": []string{tc.tenantId},

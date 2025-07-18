@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -39,17 +40,18 @@ import (
 )
 
 const (
-	nodeProviderIDIndex       string = "nodeProviderIDIndex"
-	bmhProviderIDIndex        string = "bmhProviderIDIndex"
-	MachineAPIGroup           string = "machine.openshift.io"
-	MachineAPIVersion         string = "v1beta1"
-	MachineResourceName       string = "machines"
-	Metal3APIGroup            string = "metal3.io"
-	Metal3APIVersion          string = "v1alpha1"
-	BareMetalHostResourceName string = "baremetalhosts"
-	DRAAPIGroup               string = "resource.k8s.io"
-	DRAAPIVersion             string = "v1beta2"
-	ResourceSliceResourceName string = "resourceslices"
+	nodeProviderIDIndex       string        = "nodeProviderIDIndex"
+	bmhProviderIDIndex        string        = "bmhProviderIDIndex"
+	MachineAPIGroup           string        = "machine.openshift.io"
+	MachineAPIVersion         string        = "v1beta1"
+	MachineResourceName       string        = "machines"
+	Metal3APIGroup            string        = "metal3.io"
+	Metal3APIVersion          string        = "v1alpha1"
+	BareMetalHostResourceName string        = "baremetalhosts"
+	DRAAPIGroup               string        = "resource.k8s.io"
+	DRAAPIVersion             string        = "v1beta2"
+	ResourceSliceResourceName string        = "resourceslices"
+	KubeClientTimeOut         time.Duration = 30 * time.Second
 )
 
 type normalizedProviderID string
@@ -85,6 +87,9 @@ func NewClientConfig() (*rest.Config, error) {
 			return nil, err
 		}
 	}
+	// Set k8s API timeout
+	config.Timeout = KubeClientTimeOut
+
 	return config, nil
 }
 

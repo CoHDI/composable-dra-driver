@@ -403,7 +403,7 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 							w.Write(response)
 						}
 						if key == "tenant_uuid" && value[0] == tenantIDTimeOut {
-							time.Sleep(15 * time.Second)
+							time.Sleep(65 * time.Second)
 							response, _ := json.Marshal(testMachineList1)
 							w.Header().Set("Content-Type", "application/json")
 							w.WriteHeader(http.StatusOK)

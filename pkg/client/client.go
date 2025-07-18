@@ -32,6 +32,10 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const (
+	CDIAPITimeOut = 60 * time.Second
+)
+
 type CDIClient struct {
 	Host        string
 	TenantId    string
@@ -391,7 +395,7 @@ type result struct {
 
 func (c *CDIClient) do(ctx context.Context, req *http.Request) (*result, error) {
 	var result result
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, CDIAPITimeOut)
 	defer cancel()
 	req = req.WithContext(ctx)
 	resp, err := c.Client.Do(req)
