@@ -52,6 +52,7 @@ type TestConfig struct {
 
 type TestSpec struct {
 	UseCapiBmh bool
+	UseCM      bool
 	DRAenabled bool
 }
 

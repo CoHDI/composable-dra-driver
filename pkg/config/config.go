@@ -37,6 +37,7 @@ type Config struct {
 	ClusterID     string
 	CDIEndpoint   string
 	UseCapiBmh    bool
+	UseCM         bool
 	BindingTimout *int64
 }
 

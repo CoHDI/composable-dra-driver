@@ -127,9 +127,12 @@ func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *ht
 		namedDriverResources: ndr,
 		cdiClient:            cdiClient,
 		kubecontrollers:      kc,
-		useCapiBmh:           testSpec.UseCapiBmh,
 		deviceInfos:          deviceInfos,
 		labelPrefix:          "cohdi.com",
+		cdiOptions: CDIOptions{
+			useCapiBmh: testSpec.UseCapiBmh,
+			useCM:      testSpec.UseCM,
+		},
 	}, server, stop
 
 }
@@ -334,6 +337,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 	testCases := []struct {
 		name                     string
 		useCapiBmh               bool
+		useCM                    bool
 		nodeName                 string
 		expectedErr              bool
 		expectedPoolName         string
@@ -347,8 +351,22 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 		expectedMinDevice        string
 	}{
 		{
-			name:                     "When the loop is done successfully",
+			name:                     "When the loop is done successfully with USE_CM is false",
 			useCapiBmh:               false,
+			useCM:                    false,
+			nodeName:                 "test-node-0",
+			expectedSliceNum:         9,
+			expectedPoolName:         "test-device-1-fabric1",
+			expectedAvailableDevices: 2,
+			expectedFabric:           "1",
+			expectedDeviceName:       "test-device-1",
+			expectedMaxDevice:        "",
+			expectedMinDevice:        "",
+		},
+		{
+			name:                     "When the loop is done successfully with USE_CM is true",
+			useCapiBmh:               true,
+			useCM:                    true,
 			nodeName:                 "test-node-0",
 			expectedSliceNum:         9,
 			expectedPoolName:         "test-device-1-fabric1",
@@ -363,6 +381,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
 				UseCapiBmh: tc.useCapiBmh,
+				UseCM:      tc.useCM,
 				DRAenabled: true,
 			}
 			m, server, stop := createTestManager(t, testSpec)
@@ -1003,6 +1022,7 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
 				UseCapiBmh: false,
+				UseCM:      true,
 				DRAenabled: true,
 			}
 			m, _, stop := createTestManager(t, testSpec)

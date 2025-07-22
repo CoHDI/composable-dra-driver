@@ -120,6 +120,13 @@ func newApp() *cli.App {
 			EnvVars:     []string{"USE_CAPI_BMH"},
 			Value:       false,
 		},
+		&cli.BoolFlag{
+			Name:        "use-cm",
+			Usage:       "Whether to use Cluster Manager or not to get a device's max/min number",
+			Destination: &config.UseCM,
+			EnvVars:     []string{"USE_CM"},
+			Value:       false,
+		},
 		&cli.Int64Flag{
 			Name:    "binding-timeout",
 			Usage:   "Timeout in seconds (default: 600) for BindingTimeoutSeconds in ResourceSlice when enable DRADeviceBindingConditions. It must be set from 0 to 86400",

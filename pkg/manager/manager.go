@@ -51,8 +51,13 @@ type CDIManager struct {
 	labelPrefix          string
 	cdiClient            *client.CDIClient
 	kubecontrollers      *kube_utils.KubeControllers
-	useCapiBmh           bool
-	bindingTimeout       *int64
+	cdiOptions           CDIOptions
+}
+
+type CDIOptions struct {
+	useCapiBmh     bool
+	useCM          bool
+	bindingTimeout *int64
 }
 
 type machine struct {
@@ -140,6 +145,12 @@ func StartCDIManager(ctx context.Context, cfg *config.Config) error {
 	// Init DriverResource for every driver name
 	ndr := initDriverResources(devInfos)
 
+	options := CDIOptions{
+		useCapiBmh:     cfg.UseCapiBmh,
+		useCM:          cfg.UseCM,
+		bindingTimeout: cfg.BindingTimout,
+	}
+
 	m := &CDIManager{
 		coreClient:           coreclient,
 		machineClient:        machineclient,
@@ -149,8 +160,7 @@ func StartCDIManager(ctx context.Context, cfg *config.Config) error {
 		labelPrefix:          labelPrefix,
 		cdiClient:            cdiclient,
 		kubecontrollers:      kc,
-		useCapiBmh:           cfg.UseCapiBmh,
-		bindingTimeout:       cfg.BindingTimout,
+		cdiOptions:           options,
 	}
 
 	controllers, err := m.startResourceSliceController(ctx)
@@ -207,19 +217,22 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 	if err != nil {
 		return err
 	}
-	// Get node groups
-	nodeGroups, err := m.getNodeGroups(ctx)
-	if err != nil {
-		return err
-	}
-	// Get node group info
+
 	var ngInfos []*client.CMNodeGroupInfo
-	for _, nodeGroup := range nodeGroups.NodeGroups {
-		ngInfo, err := m.getNodeGroupInfo(ctx, nodeGroup)
+	if m.cdiOptions.useCM {
+		// Get node groups
+		nodeGroups, err := m.getNodeGroups(ctx)
 		if err != nil {
 			return err
 		}
-		ngInfos = append(ngInfos, ngInfo)
+		// Get node group info
+		for _, nodeGroup := range nodeGroups.NodeGroups {
+			ngInfo, err := m.getNodeGroupInfo(ctx, nodeGroup)
+			if err != nil {
+				return err
+			}
+			ngInfos = append(ngInfos, ngInfo)
+		}
 	}
 
 	// Create machine which have information of node and devices
@@ -232,13 +245,15 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 			continue
 		}
 		foundInNodeGroup := make(map[string]string)
-		for _, ngInfo := range ngInfos {
-			if slices.Contains(ngInfo.MachineIDs, muuid) {
-				foundInNodeGroup[muuid] = ngInfo.UUID
+		if m.cdiOptions.useCM {
+			for _, ngInfo := range ngInfos {
+				if slices.Contains(ngInfo.MachineIDs, muuid) {
+					foundInNodeGroup[muuid] = ngInfo.UUID
+				}
 			}
-		}
-		if _, exist := foundInNodeGroup[muuid]; !exist {
-			slog.Warn("the machine is not found in all node groups, so not set max/min device num", "nodeName", nodeName, "machineUUID", muuid)
+			if _, exist := foundInNodeGroup[muuid]; !exist {
+				slog.Warn("the machine is not found in all node groups, so not set max/min device num", "nodeName", nodeName, "machineUUID", muuid)
+			}
 		}
 		machine := &machine{
 			nodeName:      nodeName,
@@ -271,7 +286,7 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 				driverName:           deviceInfo.DriverName,
 				draAttributes:        deviceInfo.DRAAttributes,
 				availableDeviceCount: availableNum,
-				bindingTimeout:       m.bindingTimeout,
+				bindingTimeout:       m.cdiOptions.bindingTimeout,
 			}
 		}
 		fabricFound[*machine.fabricID] = deviceList
@@ -288,39 +303,41 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 	}
 
 	// Get the minimum and maximum number of devices in the node group
-	type limit struct {
-		min *int
-		max *int
-	}
-	type deviceMinMax map[string]limit
-	nodeGroupFound := make(map[string]deviceMinMax)
-	for _, machine := range machines {
-		if _, exists := nodeGroupFound[machine.nodeGroupUUID]; exists {
-			continue
+	if m.cdiOptions.useCM {
+		type limit struct {
+			min *int
+			max *int
 		}
-		var deviceMinMax deviceMinMax = make(map[string]limit)
-		for model := range machine.deviceList {
-			min, max, err := m.getMinMaxNums(ctx, machine.machineUUID, model)
-			if err != nil {
-				return err
-			}
-			deviceMinMax[model] = limit{min: min, max: max}
-		}
-		nodeGroupFound[machine.nodeGroupUUID] = deviceMinMax
-	}
-
-	// Copy device min/max into machine in same node group
-	for ngUUID, deviceMinMax := range nodeGroupFound {
+		type deviceMinMax map[string]limit
+		nodeGroupFound := make(map[string]deviceMinMax)
 		for _, machine := range machines {
-			if machine.nodeGroupUUID != ngUUID {
+			if _, exists := nodeGroupFound[machine.nodeGroupUUID]; exists {
 				continue
 			}
-			for model, limit := range deviceMinMax {
-				if limit.min != nil {
-					machine.deviceList[model].minDeviceCount = limit.min
+			var deviceMinMax deviceMinMax = make(map[string]limit)
+			for model := range machine.deviceList {
+				min, max, err := m.getMinMaxNums(ctx, machine.machineUUID, model)
+				if err != nil {
+					return err
 				}
-				if limit.max != nil {
-					machine.deviceList[model].maxDeviceCount = limit.max
+				deviceMinMax[model] = limit{min: min, max: max}
+			}
+			nodeGroupFound[machine.nodeGroupUUID] = deviceMinMax
+		}
+
+		// Copy device min/max into machine in same node group
+		for ngUUID, deviceMinMax := range nodeGroupFound {
+			for _, machine := range machines {
+				if machine.nodeGroupUUID != ngUUID {
+					continue
+				}
+				for model, limit := range deviceMinMax {
+					if limit.min != nil {
+						machine.deviceList[model].minDeviceCount = limit.min
+					}
+					if limit.max != nil {
+						machine.deviceList[model].maxDeviceCount = limit.max
+					}
 				}
 			}
 		}
@@ -361,10 +378,10 @@ func (m *CDIManager) getMachineUUIDs() (map[string]string, error) {
 			continue
 		}
 		var uuid string
-		if !m.useCapiBmh {
+		if !m.cdiOptions.useCapiBmh {
 			// If not using cluster-api and BareMetalHost in a cluster, provider id itself is machine uuid
 			uuid = string(providerID)
-		} else if m.useCapiBmh {
+		} else if m.cdiOptions.useCapiBmh {
 			// If using cluster-api and BareMetalHost, machine uuid must be derived from annotation of BareMetalHost
 			uuid, err = m.kubecontrollers.FindMachineUUIDByProviderID(providerID)
 			if err != nil {
@@ -588,19 +605,29 @@ func (m *CDIManager) manageCDINodeLabel(ctx context.Context, machines []*machine
 		if node != nil {
 			node.Labels[fabricLabelKey] = strconv.Itoa(*machine.fabricID)
 			slog.Debug("set labels for fabric", "nodeName", machine.nodeName, "label", fabricLabelKey+"="+node.Labels[fabricLabelKey])
-			// Label for the min and max number of devices
-			for _, device := range machine.deviceList {
-				if device.maxDeviceCount != nil {
+			if m.cdiOptions.useCM {
+				// Label for the min and max number of devices
+				for _, device := range machine.deviceList {
 					maxLabelKey := m.labelPrefix + "/" + device.k8sDeviceName + "-size-max"
-					max := strconv.Itoa(*device.maxDeviceCount)
-					node.Labels[maxLabelKey] = max
-					slog.Debug("set labels for max of devices", "nodeName", machine.nodeName, "label", maxLabelKey+"="+max)
-				}
-				if device.minDeviceCount != nil {
+					if device.maxDeviceCount != nil {
+						max := strconv.Itoa(*device.maxDeviceCount)
+						if node.Labels[maxLabelKey] != max {
+							node.Labels[maxLabelKey] = max
+							slog.Info("set labels for max of devices", "nodeName", machine.nodeName, "label", maxLabelKey+"="+max)
+						}
+					} else {
+						delete(node.Labels, maxLabelKey)
+					}
 					minLabelKey := m.labelPrefix + "/" + device.k8sDeviceName + "-size-min"
-					min := strconv.Itoa(*device.minDeviceCount)
-					node.Labels[minLabelKey] = min
-					slog.Debug("set labels for min of devices", "nodeName", machine.nodeName, "label", minLabelKey+"="+min)
+					if device.minDeviceCount != nil {
+						min := strconv.Itoa(*device.minDeviceCount)
+						if node.Labels[minLabelKey] != min {
+							node.Labels[minLabelKey] = min
+							slog.Info("set labels for min of devices", "nodeName", machine.nodeName, "label", minLabelKey+"="+min)
+						}
+					} else {
+						delete(node.Labels, minLabelKey)
+					}
 				}
 			}
 			_, err = m.coreClient.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
