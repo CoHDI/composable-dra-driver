@@ -1,3 +1,19 @@
+/*
+Copyright 2025 The CoHDI Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package client
 
 import (
@@ -14,6 +30,10 @@ import (
 	"time"
 
 	"golang.org/x/oauth2"
+)
+
+const (
+	CDIAPITimeOut = 60 * time.Second
 )
 
 type CDIClient struct {
@@ -199,7 +219,7 @@ func (c *CDIClient) GetIMToken(ctx context.Context, secret idManagerSecret) (*IM
 
 	req := r.setHost(c.Host).setPath(path).setBody(data).setHeader("Content-Type", "application/x-www-form-urlencoded")
 
-	slog.Info("connecting", "url", req.url().String())
+	slog.Debug("connecting", "url", req.url().String())
 	httpReq, err := newHTTPRequest(req)
 	if err != nil {
 		return nil, err
@@ -229,6 +249,7 @@ func (c *CDIClient) GetFMMachineList(ctx context.Context) (*FMMachineList, error
 	}
 	req := r.setHost(c.Host).setPath(path).setQuery(query).setHeader("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
 
+	slog.Debug("connecting", "url", req.url().String())
 	httpReq, err := newHTTPRequest(req)
 	if err != nil {
 		return nil, err
@@ -269,6 +290,7 @@ func (c *CDIClient) GetFMAvailableReservedResources(ctx context.Context, muuid s
 	}
 	req := r.setHost(c.Host).setPath(path).setQuery(query).setHeader("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
 
+	slog.Debug("connecting", "url", req.url().String())
 	httpReq, err := newHTTPRequest(req)
 	if err != nil {
 		return nil, err
@@ -295,6 +317,7 @@ func (c *CDIClient) GetCMNodeGroups(ctx context.Context) (*CMNodeGroups, error) 
 	}
 	req := r.setHost(c.Host).setPath(path).setHeader("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
 
+	slog.Debug("connecting", "url", req.url().String())
 	httpReq, err := newHTTPRequest(req)
 	if err != nil {
 		return nil, err
@@ -321,6 +344,7 @@ func (c *CDIClient) GetCMNodeGroupInfo(ctx context.Context, ng CMNodeGroup) (*CM
 	}
 	req := r.setHost(c.Host).setPath(path).setHeader("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
 
+	slog.Debug("connecting", "url", req.url().String())
 	httpReq, err := newHTTPRequest(req)
 	if err != nil {
 		return nil, err
@@ -347,6 +371,7 @@ func (c *CDIClient) GetCMNodeDetails(ctx context.Context, muuid string) (*CMNode
 	}
 	req := r.setHost(c.Host).setPath(path).setHeader("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
 
+	slog.Debug("connecting", "url", req.url().String())
 	httpReq, err := newHTTPRequest(req)
 	if err != nil {
 		return nil, err
@@ -370,7 +395,7 @@ type result struct {
 
 func (c *CDIClient) do(ctx context.Context, req *http.Request) (*result, error) {
 	var result result
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, CDIAPITimeOut)
 	defer cancel()
 	req = req.WithContext(ctx)
 	resp, err := c.Client.Do(req)

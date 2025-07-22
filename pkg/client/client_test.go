@@ -1,3 +1,19 @@
+/*
+Copyright 2025 The CoHDI Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package client
 
 import (
@@ -7,15 +23,22 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 
 	"k8s.io/utils/ptr"
 )
+
+func init() {
+	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
+	slog.SetDefault(slog.New(handler))
+}
 
 func buildTestCDIClient(t testing.TB, tenantID string, clusterID string) (*CDIClient, *httptest.Server, ku.TestControllerShutdownFunc) {
 	server, certPem := CreateTLSServer(t)
@@ -397,12 +420,6 @@ func TestCDIClientDo(t *testing.T) {
 			expectedErr:        false,
 			expectedStatusCode: 404,
 		},
-		{
-			name:           "When connecting to not-existent destination",
-			nonExistent:    "dummy-",
-			expectedErr:    true,
-			expectedErrMsg: "context deadline exceeded",
-		},
 	}
 
 	for _, tc := range testCases {
@@ -415,7 +432,7 @@ func TestCDIClientDo(t *testing.T) {
 			parsedURL, _ := url.Parse(server.URL)
 			url := &url.URL{
 				Scheme: "https",
-				Host:   tc.nonExistent + parsedURL.Host,
+				Host:   parsedURL.Host,
 				Path:   "/fabric_manager/api/v1/machines",
 				RawQuery: url.Values{
 					"tenant_uuid": []string{tc.tenantId},

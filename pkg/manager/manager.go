@@ -1,3 +1,19 @@
+/*
+Copyright 2025 The CoHDI Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package manager
 
 import (
@@ -35,8 +51,13 @@ type CDIManager struct {
 	labelPrefix          string
 	cdiClient            *client.CDIClient
 	kubecontrollers      *kube_utils.KubeControllers
-	useCapiBmh           bool
-	bindingTimeout       *int64
+	cdiOptions           CDIOptions
+}
+
+type CDIOptions struct {
+	useCapiBmh     bool
+	useCM          bool
+	bindingTimeout *int64
 }
 
 type machine struct {
@@ -124,6 +145,12 @@ func StartCDIManager(ctx context.Context, cfg *config.Config) error {
 	// Init DriverResource for every driver name
 	ndr := initDriverResources(devInfos)
 
+	options := CDIOptions{
+		useCapiBmh:     cfg.UseCapiBmh,
+		useCM:          cfg.UseCM,
+		bindingTimeout: cfg.BindingTimout,
+	}
+
 	m := &CDIManager{
 		coreClient:           coreclient,
 		machineClient:        machineclient,
@@ -133,8 +160,7 @@ func StartCDIManager(ctx context.Context, cfg *config.Config) error {
 		labelPrefix:          labelPrefix,
 		cdiClient:            cdiclient,
 		kubecontrollers:      kc,
-		useCapiBmh:           cfg.UseCapiBmh,
-		bindingTimeout:       cfg.BindingTimout,
+		cdiOptions:           options,
 	}
 
 	controllers, err := m.startResourceSliceController(ctx)
@@ -165,7 +191,7 @@ func (m *CDIManager) startResourceSliceController(ctx context.Context) (map[stri
 			KubeClient: m.coreClient,
 			Resources:  driverResource,
 		}
-		slog.Info("Start publishing ResourceSlices for CDI fabric devices...", "driverName", driverName)
+		slog.Debug("Start publishing ResourceSlices for CDI fabric devices...", "driverName", driverName)
 		controller, err := resourceslice.StartController(ctx, options)
 		if err != nil {
 			slog.Error("error starting resource slice controller", "error", err)
@@ -191,19 +217,22 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 	if err != nil {
 		return err
 	}
-	// Get node groups
-	nodeGroups, err := m.getNodeGroups(ctx)
-	if err != nil {
-		return err
-	}
-	// Get node group info
+
 	var ngInfos []*client.CMNodeGroupInfo
-	for _, nodeGroup := range nodeGroups.NodeGroups {
-		ngInfo, err := m.getNodeGroupInfo(ctx, nodeGroup)
+	if m.cdiOptions.useCM {
+		// Get node groups
+		nodeGroups, err := m.getNodeGroups(ctx)
 		if err != nil {
 			return err
 		}
-		ngInfos = append(ngInfos, ngInfo)
+		// Get node group info
+		for _, nodeGroup := range nodeGroups.NodeGroups {
+			ngInfo, err := m.getNodeGroupInfo(ctx, nodeGroup)
+			if err != nil {
+				return err
+			}
+			ngInfos = append(ngInfos, ngInfo)
+		}
 	}
 
 	// Create machine which have information of node and devices
@@ -216,13 +245,15 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 			continue
 		}
 		foundInNodeGroup := make(map[string]string)
-		for _, ngInfo := range ngInfos {
-			if slices.Contains(ngInfo.MachineIDs, muuid) {
-				foundInNodeGroup[muuid] = ngInfo.UUID
+		if m.cdiOptions.useCM {
+			for _, ngInfo := range ngInfos {
+				if slices.Contains(ngInfo.MachineIDs, muuid) {
+					foundInNodeGroup[muuid] = ngInfo.UUID
+				}
 			}
-		}
-		if _, exist := foundInNodeGroup[muuid]; !exist {
-			slog.Warn("the machine is not found in all node groups, so not set max/min device num", "nodeName", nodeName, "machineUUID", muuid)
+			if _, exist := foundInNodeGroup[muuid]; !exist {
+				slog.Warn("the machine is not found in all node groups, so not set max/min device num", "nodeName", nodeName, "machineUUID", muuid)
+			}
 		}
 		machine := &machine{
 			nodeName:      nodeName,
@@ -255,7 +286,7 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 				driverName:           deviceInfo.DriverName,
 				draAttributes:        deviceInfo.DRAAttributes,
 				availableDeviceCount: availableNum,
-				bindingTimeout:       m.bindingTimeout,
+				bindingTimeout:       m.cdiOptions.bindingTimeout,
 			}
 		}
 		fabricFound[*machine.fabricID] = deviceList
@@ -272,39 +303,41 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 	}
 
 	// Get the minimum and maximum number of devices in the node group
-	type limit struct {
-		min *int
-		max *int
-	}
-	type deviceMinMax map[string]limit
-	nodeGroupFound := make(map[string]deviceMinMax)
-	for _, machine := range machines {
-		if _, exists := nodeGroupFound[machine.nodeGroupUUID]; exists {
-			continue
+	if m.cdiOptions.useCM {
+		type limit struct {
+			min *int
+			max *int
 		}
-		var deviceMinMax deviceMinMax = make(map[string]limit)
-		for model := range machine.deviceList {
-			min, max, err := m.getMinMaxNums(ctx, machine.machineUUID, model)
-			if err != nil {
-				return err
-			}
-			deviceMinMax[model] = limit{min: min, max: max}
-		}
-		nodeGroupFound[machine.nodeGroupUUID] = deviceMinMax
-	}
-
-	// Copy device min/max into machine in same node group
-	for ngUUID, deviceMinMax := range nodeGroupFound {
+		type deviceMinMax map[string]limit
+		nodeGroupFound := make(map[string]deviceMinMax)
 		for _, machine := range machines {
-			if machine.nodeGroupUUID != ngUUID {
+			if _, exists := nodeGroupFound[machine.nodeGroupUUID]; exists {
 				continue
 			}
-			for model, limit := range deviceMinMax {
-				if limit.min != nil {
-					machine.deviceList[model].minDeviceCount = limit.min
+			var deviceMinMax deviceMinMax = make(map[string]limit)
+			for model := range machine.deviceList {
+				min, max, err := m.getMinMaxNums(ctx, machine.machineUUID, model)
+				if err != nil {
+					return err
 				}
-				if limit.max != nil {
-					machine.deviceList[model].maxDeviceCount = limit.max
+				deviceMinMax[model] = limit{min: min, max: max}
+			}
+			nodeGroupFound[machine.nodeGroupUUID] = deviceMinMax
+		}
+
+		// Copy device min/max into machine in same node group
+		for ngUUID, deviceMinMax := range nodeGroupFound {
+			for _, machine := range machines {
+				if machine.nodeGroupUUID != ngUUID {
+					continue
+				}
+				for model, limit := range deviceMinMax {
+					if limit.min != nil {
+						machine.deviceList[model].minDeviceCount = limit.min
+					}
+					if limit.max != nil {
+						machine.deviceList[model].maxDeviceCount = limit.max
+					}
 				}
 			}
 		}
@@ -345,10 +378,10 @@ func (m *CDIManager) getMachineUUIDs() (map[string]string, error) {
 			continue
 		}
 		var uuid string
-		if !m.useCapiBmh {
+		if !m.cdiOptions.useCapiBmh {
 			// If not using cluster-api and BareMetalHost in a cluster, provider id itself is machine uuid
 			uuid = string(providerID)
-		} else if m.useCapiBmh {
+		} else if m.cdiOptions.useCapiBmh {
 			// If using cluster-api and BareMetalHost, machine uuid must be derived from annotation of BareMetalHost
 			uuid, err = m.kubecontrollers.FindMachineUUIDByProviderID(providerID)
 			if err != nil {
@@ -369,15 +402,15 @@ func (m *CDIManager) getMachineUUIDs() (map[string]string, error) {
 
 func (m *CDIManager) getMachineList(ctx context.Context) (*client.FMMachineList, error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
-	slog.Info("trying to get machine list from FabricManager", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	slog.Debug("trying to get machine list from FabricManager", "requestID", client.GetRequestIdFromContext(ctx))
 
 	// Publish API to get a machine list from FabricManager
 	mList, err := m.cdiClient.GetFMMachineList(ctx)
 	if err != nil {
-		slog.Error("FM machine list API failed", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+		slog.Error("FM machine list API failed", "requestID", client.GetRequestIdFromContext(ctx))
 		return nil, err
 	}
-	slog.Info("FM machine list API completed successfully", "requestID", ctx.Value(client.RequestIDKey{}).(string))
+	slog.Debug("FM machine list API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	for _, machine := range mList.Data.Machines {
 		slog.Debug("got machine list", "machineUUID", machine.MachineUUID, "fabricID", safeReference(machine.FabricID))
 	}
@@ -386,7 +419,7 @@ func (m *CDIManager) getMachineList(ctx context.Context) (*client.FMMachineList,
 
 func (m *CDIManager) getAvailableNums(ctx context.Context, muuid string, modelName string) (int, error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
-	slog.Info("trying to get available reserved resources from FabricManager", "machineUUID", muuid, "modelName", modelName, "requestID", client.GetRequestIdFromContext(ctx))
+	slog.Debug("trying to get available reserved resources from FabricManager", "machineUUID", muuid, "modelName", modelName, "requestID", client.GetRequestIdFromContext(ctx))
 
 	// Publish API to get available reserved resources from FabricManager
 	availableResources, err := m.cdiClient.GetFMAvailableReservedResources(ctx, muuid, modelName)
@@ -394,13 +427,13 @@ func (m *CDIManager) getAvailableNums(ctx context.Context, muuid string, modelNa
 		slog.Error("FM available reserved resources API failed", "requestID", client.GetRequestIdFromContext(ctx))
 		return 0, err
 	}
-	slog.Info("FM available reserved resources API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
+	slog.Debug("FM available reserved resources API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	return availableResources.ReservedResourceNum, nil
 }
 
 func (m *CDIManager) getNodeGroups(ctx context.Context) (*client.CMNodeGroups, error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
-	slog.Info("trying to get node groups from ClusterManager", "requestID", client.GetRequestIdFromContext(ctx))
+	slog.Debug("trying to get node groups from ClusterManager", "requestID", client.GetRequestIdFromContext(ctx))
 
 	// Publish API to get node groups from ClusterManager
 	nodeGroups, err := m.cdiClient.GetCMNodeGroups(ctx)
@@ -408,7 +441,7 @@ func (m *CDIManager) getNodeGroups(ctx context.Context) (*client.CMNodeGroups, e
 		slog.Error("CM node groups API failed", "requestID", client.GetRequestIdFromContext(ctx))
 		return nil, err
 	}
-	slog.Info("CM node groups API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
+	slog.Debug("CM node groups API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	for _, nodeGroup := range nodeGroups.NodeGroups {
 		slog.Debug("got node groups", "NodeGroupName", nodeGroup.Name, "UUID", nodeGroup.UUID)
 	}
@@ -417,7 +450,7 @@ func (m *CDIManager) getNodeGroups(ctx context.Context) (*client.CMNodeGroups, e
 
 func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.CMNodeGroup) (*client.CMNodeGroupInfo, error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
-	slog.Info("trying to get node group info from ClusterManager", "nodeGroupName", nodeGroup.Name, "requestID", client.GetRequestIdFromContext(ctx))
+	slog.Debug("trying to get node group info from ClusterManager", "nodeGroupName", nodeGroup.Name, "requestID", client.GetRequestIdFromContext(ctx))
 
 	// Publish API to get a node group info from ClusterManager
 	nodeGroupInfo, err := m.cdiClient.GetCMNodeGroupInfo(ctx, nodeGroup)
@@ -425,7 +458,7 @@ func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.CMNo
 		slog.Error("CM node group info API failed", "requestID", client.GetRequestIdFromContext(ctx))
 		return nil, err
 	}
-	slog.Info("CM node group info API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
+	slog.Debug("CM node group info API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	for _, machineID := range nodeGroupInfo.MachineIDs {
 		slog.Debug("got node group info, the machine belongs in the node group", "machineUUID", machineID, "NodeGroupName", nodeGroupInfo.Name)
 	}
@@ -438,7 +471,7 @@ func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.CMNo
 
 func (m *CDIManager) getMinMaxNums(ctx context.Context, muuid string, modelName string) (min *int, max *int, error error) {
 	ctx = context.WithValue(ctx, client.RequestIDKey{}, config.RandomString(6))
-	slog.Info("trying to get node details from ClusterManager", "machineUUID", muuid, "modelName", modelName, "requestID", client.GetRequestIdFromContext(ctx))
+	slog.Debug("trying to get node details from ClusterManager", "machineUUID", muuid, "modelName", modelName, "requestID", client.GetRequestIdFromContext(ctx))
 
 	// Publish API to get node details from ClusterManager
 	nodeDetails, err := m.cdiClient.GetCMNodeDetails(ctx, muuid)
@@ -446,7 +479,7 @@ func (m *CDIManager) getMinMaxNums(ctx context.Context, muuid string, modelName 
 		slog.Error("CM node details API failed", "requestID", client.GetRequestIdFromContext(ctx))
 		return nil, nil, err
 	}
-	slog.Info("CM node details API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
+	slog.Debug("CM node details API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	for _, resspec := range nodeDetails.Data.Cluster.Machine.ResSpecs {
 		for _, condition := range resspec.Selector.Expression.Conditions {
 			if condition.Column == "model" && condition.Operator == "eq" && condition.Value == modelName {
@@ -472,7 +505,6 @@ func (m *CDIManager) manageCDIResourceSlices(machines []*machine, controlles map
 					poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(*machine.fabricID)
 					updated := m.updatePool(device.driverName, poolName, device, *machine.fabricID)
 					if updated {
-						slog.Info("pool update needed", "poolName", poolName, "generation", m.namedDriverResources[device.driverName].Pools[poolName].Generation, "driver", device.driverName)
 						needUpdate[device.driverName] = true
 					}
 				}
@@ -483,6 +515,9 @@ func (m *CDIManager) manageCDIResourceSlices(machines []*machine, controlles map
 	for driverName, driverResources := range m.namedDriverResources {
 		if needUpdate[driverName] {
 			c := controlles[driverName]
+			for poolName := range driverResources.Pools {
+				slog.Info("pool update", "poolName", poolName, "generation", m.namedDriverResources[driverName].Pools[poolName].Generation, "driver", driverName)
+			}
 			c.Update(driverResources)
 		}
 	}
@@ -570,19 +605,29 @@ func (m *CDIManager) manageCDINodeLabel(ctx context.Context, machines []*machine
 		if node != nil {
 			node.Labels[fabricLabelKey] = strconv.Itoa(*machine.fabricID)
 			slog.Debug("set labels for fabric", "nodeName", machine.nodeName, "label", fabricLabelKey+"="+node.Labels[fabricLabelKey])
-			// Label for the min and max number of devices
-			for _, device := range machine.deviceList {
-				if device.maxDeviceCount != nil {
+			if m.cdiOptions.useCM {
+				// Label for the min and max number of devices
+				for _, device := range machine.deviceList {
 					maxLabelKey := m.labelPrefix + "/" + device.k8sDeviceName + "-size-max"
-					max := strconv.Itoa(*device.maxDeviceCount)
-					node.Labels[maxLabelKey] = max
-					slog.Debug("set labels for max of devices", "nodeName", machine.nodeName, "label", maxLabelKey+"="+max)
-				}
-				if device.minDeviceCount != nil {
+					if device.maxDeviceCount != nil {
+						max := strconv.Itoa(*device.maxDeviceCount)
+						if node.Labels[maxLabelKey] != max {
+							node.Labels[maxLabelKey] = max
+							slog.Info("set labels for max of devices", "nodeName", machine.nodeName, "label", maxLabelKey+"="+max)
+						}
+					} else {
+						delete(node.Labels, maxLabelKey)
+					}
 					minLabelKey := m.labelPrefix + "/" + device.k8sDeviceName + "-size-min"
-					min := strconv.Itoa(*device.minDeviceCount)
-					node.Labels[minLabelKey] = min
-					slog.Debug("set labels for min of devices", "nodeName", machine.nodeName, "label", minLabelKey+"="+min)
+					if device.minDeviceCount != nil {
+						min := strconv.Itoa(*device.minDeviceCount)
+						if node.Labels[minLabelKey] != min {
+							node.Labels[minLabelKey] = min
+							slog.Info("set labels for min of devices", "nodeName", machine.nodeName, "label", minLabelKey+"="+min)
+						}
+					} else {
+						delete(node.Labels, minLabelKey)
+					}
 				}
 			}
 			_, err = m.coreClient.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})

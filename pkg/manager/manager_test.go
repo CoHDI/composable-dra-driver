@@ -1,3 +1,19 @@
+/*
+Copyright 2025 The CoHDI Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package manager
 
 import (
@@ -6,8 +22,10 @@ import (
 	ku "cdi_dra/pkg/kube_utils"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"reflect"
 	"strconv"
 	"sync"
@@ -29,6 +47,11 @@ const (
 	fabricIdNum  = 3
 	nodeGroupNum = 3
 )
+
+func init() {
+	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
+	slog.SetDefault(slog.New(handler))
+}
 
 func createTestDriverResources() map[string]*resourceslice.DriverResources {
 	ndr := make(map[string]*resourceslice.DriverResources)
@@ -104,9 +127,12 @@ func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *ht
 		namedDriverResources: ndr,
 		cdiClient:            cdiClient,
 		kubecontrollers:      kc,
-		useCapiBmh:           testSpec.UseCapiBmh,
 		deviceInfos:          deviceInfos,
 		labelPrefix:          "cohdi.com",
+		cdiOptions: CDIOptions{
+			useCapiBmh: testSpec.UseCapiBmh,
+			useCM:      testSpec.UseCM,
+		},
 	}, server, stop
 
 }
@@ -129,18 +155,19 @@ func createResourceSliceCreateReactor() func(action k8stesting.Action) (handled 
 func createTestMachines(availableDeviceCount int) []*machine {
 	var machines []*machine
 	for i := 0; i < config.TestNodeCount; i++ {
+		nodeGroupUUID := fmt.Sprintf("%d0000000-0000-0000-0000-000000000000", (i/nodeGroupNum)+1)
 		machine := &machine{
 			nodeName:      "test-node-" + strconv.Itoa(i),
 			fabricID:      ptr.To((i % fabricIdNum) + 1),
-			nodeGroupUUID: strconv.Itoa((i / nodeGroupNum) + 1),
+			nodeGroupUUID: nodeGroupUUID,
 		}
-		machine.deviceList = createTestDeviceList(availableDeviceCount)
+		machine.deviceList = createTestDeviceList(availableDeviceCount, nodeGroupUUID)
 		machines = append(machines, machine)
 	}
 	return machines
 }
 
-func createTestDeviceList(availableNum int) deviceList {
+func createTestDeviceList(availableNum int, nodeGroupUUID string) deviceList {
 	deviceList := deviceList{
 		"DEVICE 1": &device{
 			k8sDeviceName: "test-device-1",
@@ -149,8 +176,6 @@ func createTestDeviceList(availableNum int) deviceList {
 				"productName": "TEST DEVICE 1",
 			},
 			availableDeviceCount: availableNum,
-			minDeviceCount:       ptr.To(1),
-			maxDeviceCount:       ptr.To(6),
 		},
 		"DEVICE 2": &device{
 			k8sDeviceName:        "test-device-2",
@@ -165,6 +190,33 @@ func createTestDeviceList(availableNum int) deviceList {
 			},
 			availableDeviceCount: availableNum,
 		},
+	}
+	if nodeGroupUUID == "10000000-0000-0000-0000-000000000000" {
+		for deviceName := range deviceList {
+			deviceList[deviceName].minDeviceCount = ptr.To(1)
+			deviceList[deviceName].maxDeviceCount = ptr.To(3)
+		}
+	}
+	if nodeGroupUUID == "20000000-0000-0000-0000-000000000000" {
+		for deviceName := range deviceList {
+			deviceList[deviceName].minDeviceCount = ptr.To(2)
+			deviceList[deviceName].maxDeviceCount = ptr.To(6)
+		}
+	}
+	if nodeGroupUUID == "30000000-0000-0000-0000-000000000000" {
+		for deviceName := range deviceList {
+			deviceList[deviceName].minDeviceCount = ptr.To(3)
+			deviceList[deviceName].maxDeviceCount = ptr.To(12)
+		}
+	}
+	// Add a device to check if it is no problem that min/max device count is nil
+	deviceList["DEVICE 4"] = &device{
+		k8sDeviceName: "test-device-4",
+		driverName:    "test-driver-2",
+		draAttributes: map[string]string{
+			"productName": "TEST DEVICE 4",
+		},
+		availableDeviceCount: availableNum,
 	}
 	return deviceList
 }
@@ -285,6 +337,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 	testCases := []struct {
 		name                     string
 		useCapiBmh               bool
+		useCM                    bool
 		nodeName                 string
 		expectedErr              bool
 		expectedPoolName         string
@@ -298,8 +351,22 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 		expectedMinDevice        string
 	}{
 		{
-			name:                     "When the loop is done successfully",
+			name:                     "When the loop is done successfully with USE_CM is false",
 			useCapiBmh:               false,
+			useCM:                    false,
+			nodeName:                 "test-node-0",
+			expectedSliceNum:         9,
+			expectedPoolName:         "test-device-1-fabric1",
+			expectedAvailableDevices: 2,
+			expectedFabric:           "1",
+			expectedDeviceName:       "test-device-1",
+			expectedMaxDevice:        "",
+			expectedMinDevice:        "",
+		},
+		{
+			name:                     "When the loop is done successfully with USE_CM is true",
+			useCapiBmh:               true,
+			useCM:                    true,
 			nodeName:                 "test-node-0",
 			expectedSliceNum:         9,
 			expectedPoolName:         "test-device-1-fabric1",
@@ -314,6 +381,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
 				UseCapiBmh: tc.useCapiBmh,
+				UseCM:      tc.useCM,
 				DRAenabled: true,
 			}
 			m, server, stop := createTestManager(t, testSpec)
@@ -815,7 +883,8 @@ func TestCDIManagerUpdatePool(t *testing.T) {
 			m, _, stop := createTestManager(t, testSpec)
 			defer stop()
 			for i, availableNum := range tc.availableDeviceCount {
-				deviceList := createTestDeviceList(availableNum)
+				nodeGroup := "10000000-0000-0000-0000-000000000000"
+				deviceList := createTestDeviceList(availableNum, nodeGroup)
 				device := deviceList["DEVICE 1"]
 				poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(tc.fabricID)
 				var updated bool
@@ -926,8 +995,8 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 		nodeName          string
 		deviceName        string
 		expectedFabric    string
-		expectedMaxDevice string
 		expectedMinDevice string
+		expectedMaxDevice string
 		expectedErr       bool
 	}{
 		{
@@ -935,14 +1004,14 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 			nodeName:          "test-node-0",
 			deviceName:        "test-device-1",
 			expectedFabric:    "1",
-			expectedMaxDevice: "6",
 			expectedMinDevice: "1",
+			expectedMaxDevice: "3",
 			expectedErr:       false,
 		},
 		{
 			name:              "When device min and max is nil",
 			nodeName:          "test-node-0",
-			deviceName:        "test-device-2",
+			deviceName:        "test-device-4",
 			expectedFabric:    "1",
 			expectedMaxDevice: "",
 			expectedMinDevice: "",
@@ -953,6 +1022,7 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
 				UseCapiBmh: false,
+				UseCM:      true,
 				DRAenabled: true,
 			}
 			m, _, stop := createTestManager(t, testSpec)

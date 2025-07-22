@@ -1,3 +1,19 @@
+/*
+Copyright 2025 The CoHDI Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package client
 
 import (
@@ -191,6 +207,7 @@ var testAvailableReservedResources = map[string][]FMAvailableReservedResources{
 var testNodeGroups1 = CMNodeGroups{
 	NodeGroups: []CMNodeGroup{
 		{
+			Name: "NodeGroup1",
 			UUID: "10000000-0000-0000-0000-000000000000",
 		},
 	},
@@ -216,6 +233,7 @@ var testNodeGroups2 = CMNodeGroups{
 var testNodeGroupInfos1 = []CMNodeGroupInfo{
 	{
 		UUID: "10000000-0000-0000-0000-000000000000",
+		Name: "NodeGroup1",
 		MachineIDs: []string{
 			"00000000-0000-0000-0000-000000000000",
 		},
@@ -225,6 +243,7 @@ var testNodeGroupInfos1 = []CMNodeGroupInfo{
 var testNodeGroupInfos2 = []CMNodeGroupInfo{
 	{
 		UUID: "10000000-0000-0000-0000-000000000000",
+		Name: "NodeGroup1",
 		MachineIDs: []string{
 			"00000000-0000-0000-0000-000000000000",
 			"00000000-0000-0000-0000-000000000001",
@@ -233,6 +252,7 @@ var testNodeGroupInfos2 = []CMNodeGroupInfo{
 	},
 	{
 		UUID: "20000000-0000-0000-0000-000000000000",
+		Name: "NodeGroup2",
 		MachineIDs: []string{
 			"00000000-0000-0000-0000-000000000003",
 			"00000000-0000-0000-0000-000000000004",
@@ -241,6 +261,7 @@ var testNodeGroupInfos2 = []CMNodeGroupInfo{
 	},
 	{
 		UUID: "30000000-0000-0000-0000-000000000000",
+		Name: "NodeGroup3",
 		MachineIDs: []string{
 			"00000000-0000-0000-0000-000000000006",
 			"00000000-0000-0000-0000-000000000007",
@@ -276,6 +297,34 @@ func createTestNodeDetails(nodeCount int) []CMNodeDetails {
 									},
 								},
 							},
+							{
+								Type: "gpu",
+								Selector: CMSelector{
+									Expression: CMExpression{
+										Conditions: []Condition{
+											{
+												Column:   "model",
+												Operator: "eq",
+												Value:    "DEVICE 2",
+											},
+										},
+									},
+								},
+							},
+							{
+								Type: "gpu",
+								Selector: CMSelector{
+									Expression: CMExpression{
+										Conditions: []Condition{
+											{
+												Column:   "model",
+												Operator: "eq",
+												Value:    "DEVICE 3",
+											},
+										},
+									},
+								},
+							},
 						},
 					},
 				},
@@ -283,14 +332,20 @@ func createTestNodeDetails(nodeCount int) []CMNodeDetails {
 		}
 		switch i / 3 {
 		case 0:
-			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MinResSpecCount = ptr.To(1)
-			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MaxResSpecCount = ptr.To(3)
+			for i := range nodeDetail.Data.Cluster.Machine.ResSpecs {
+				nodeDetail.Data.Cluster.Machine.ResSpecs[i].MinResSpecCount = ptr.To(1)
+				nodeDetail.Data.Cluster.Machine.ResSpecs[i].MaxResSpecCount = ptr.To(3)
+			}
 		case 1:
-			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MinResSpecCount = ptr.To(2)
-			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MaxResSpecCount = ptr.To(6)
+			for i := range nodeDetail.Data.Cluster.Machine.ResSpecs {
+				nodeDetail.Data.Cluster.Machine.ResSpecs[i].MinResSpecCount = ptr.To(2)
+				nodeDetail.Data.Cluster.Machine.ResSpecs[i].MaxResSpecCount = ptr.To(6)
+			}
 		case 2:
-			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MinResSpecCount = ptr.To(3)
-			nodeDetail.Data.Cluster.Machine.ResSpecs[0].MaxResSpecCount = ptr.To(12)
+			for i := range nodeDetail.Data.Cluster.Machine.ResSpecs {
+				nodeDetail.Data.Cluster.Machine.ResSpecs[i].MinResSpecCount = ptr.To(3)
+				nodeDetail.Data.Cluster.Machine.ResSpecs[i].MaxResSpecCount = ptr.To(12)
+			}
 		}
 		nodeDetails = append(nodeDetails, nodeDetail)
 	}
@@ -348,7 +403,7 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 							w.Write(response)
 						}
 						if key == "tenant_uuid" && value[0] == tenantIDTimeOut {
-							time.Sleep(15 * time.Second)
+							time.Sleep(65 * time.Second)
 							response, _ := json.Marshal(testMachineList1)
 							w.Header().Set("Content-Type", "application/json")
 							w.WriteHeader(http.StatusOK)
