@@ -28,6 +28,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -267,7 +268,7 @@ func TestCDIManagerStartResourceSliceController(t *testing.T) {
 		expectedErr         bool
 	}{
 		{
-			name:                "When correctly create manager",
+			name:                "When the controller starts successfully if DRA is enabled",
 			expectedDriverName:  "test-driver-1",
 			expectedPoolName:    "test-device-1-fabric1",
 			expectedDeviceName:  "test-device-1-gpu1",
@@ -351,7 +352,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 		expectedMinDevice        string
 	}{
 		{
-			name:                     "When the loop is done successfully with USE_CM is false",
+			name:                     "When the loop is done successfully with USE_CM/USE_CAPI_BMH is false",
 			useCapiBmh:               false,
 			useCM:                    false,
 			nodeName:                 "test-node-0",
@@ -364,7 +365,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 			expectedMinDevice:        "",
 		},
 		{
-			name:                     "When the loop is done successfully with USE_CM is true",
+			name:                     "When the loop is done successfully with USE_CM/USE_CAPI_BMH is true",
 			useCapiBmh:               true,
 			useCM:                    true,
 			nodeName:                 "test-node-0",
@@ -469,7 +470,7 @@ func TestCDIManagerGetMachineUUID(t *testing.T) {
 		expectedMachineUUID string
 	}{
 		{
-			name:                "When correct machine uuid is got if useCapiBmh is true",
+			name:                "When correct machine uuid is obtained if USE_CAPI_BMH is true",
 			nodeCount:           1,
 			nodeName:            "test-node-0",
 			useCapiBmh:          true,
@@ -477,7 +478,7 @@ func TestCDIManagerGetMachineUUID(t *testing.T) {
 			expectedMachineUUID: "00000000-0000-0000-0000-000000000000",
 		},
 		{
-			name:                "When correct machine uuid is got if useCapiBmh is false",
+			name:                "When correct machine uuid is obtained if USE_CAPI_BMH is false",
 			nodeCount:           2,
 			nodeName:            "test-node-1",
 			useCapiBmh:          false,
@@ -510,22 +511,20 @@ func TestCDIManagerGetMachineUUID(t *testing.T) {
 
 func TestCDIManagerGetMachineList(t *testing.T) {
 	testCases := []struct {
-		name        string
-		nodeCount   int
-		useCapiBmh  bool
-		expectedErr bool
+		name              string
+		expectedNodeCount int
+		expectedErr       bool
 	}{
 		{
-			name:        "When correctly getting machine list",
-			nodeCount:   9,
-			useCapiBmh:  true,
-			expectedErr: false,
+			name:              "When correct machine list is obtained as expected",
+			expectedNodeCount: 9,
+			expectedErr:       false,
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
-				UseCapiBmh: tc.useCapiBmh,
+				UseCapiBmh: false,
 				DRAenabled: true,
 			}
 			m, server, stop := createTestManager(t, testSpec)
@@ -540,8 +539,8 @@ func TestCDIManagerGetMachineList(t *testing.T) {
 					t.Errorf("unexpected error: %v", err)
 				}
 				if mList != nil {
-					if len(mList.Data.Machines) != tc.nodeCount {
-						t.Errorf("unexpected node length, expected %d but got %d", tc.nodeCount, len(mList.Data.Machines))
+					if len(mList.Data.Machines) != tc.expectedNodeCount {
+						t.Errorf("unexpected node length, expected %d but got %d", tc.expectedNodeCount, len(mList.Data.Machines))
 					}
 				}
 			}
@@ -555,23 +554,28 @@ func TestCDIManagerGetAvailableNums(t *testing.T) {
 		name                               string
 		machineUUID                        string
 		modelName                          string
-		useCapiBmh                         bool
 		expectedErr                        bool
+		expectedErrMsg                     string
 		expectedAvailableReservedResources int
 	}{
 		{
-			name:                               "When correctly getting available number of fabric devices in resource pool",
+			name:                               "When available number of fabric devices are obtained as expected",
 			machineUUID:                        "00000000-0000-0000-0000-000000000000",
 			modelName:                          "DEVICE 1",
-			useCapiBmh:                         true,
 			expectedErr:                        false,
 			expectedAvailableReservedResources: 2,
+		},
+		{
+			name:           "When not-existsted device model is specified",
+			machineUUID:    "00000000-0000-0000-0000-000000000000",
+			modelName:      "DUMMY DEVICE",
+			expectedErr:    true,
+			expectedErrMsg: "FM available reserved resources API failed",
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
-				UseCapiBmh: tc.useCapiBmh,
 				DRAenabled: true,
 			}
 			m, server, stop := createTestManager(t, testSpec)
@@ -580,7 +584,12 @@ func TestCDIManagerGetAvailableNums(t *testing.T) {
 
 			availableResources, err := m.getAvailableNums(context.Background(), tc.machineUUID, tc.modelName)
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Error("expected error, but got none")
+				}
+				if !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
@@ -596,13 +605,11 @@ func TestCDIManagerGetAvailableNums(t *testing.T) {
 func TestCDIManagerGetNodeGroups(t *testing.T) {
 	testCases := []struct {
 		name                    string
-		useCapiBmh              bool
 		expectedErr             bool
 		expectedNodeGroupLength int
 	}{
 		{
-			name:                    "When correctly getting node groups",
-			useCapiBmh:              true,
+			name:                    "When correct node groups are obtained as expected",
 			expectedErr:             false,
 			expectedNodeGroupLength: 3,
 		},
@@ -610,7 +617,6 @@ func TestCDIManagerGetNodeGroups(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
-				UseCapiBmh: tc.useCapiBmh,
 				DRAenabled: true,
 			}
 			m, server, stop := createTestManager(t, testSpec)
@@ -619,7 +625,9 @@ func TestCDIManagerGetNodeGroups(t *testing.T) {
 
 			nodeGroups, err := m.getNodeGroups(context.Background())
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Error("expected error, but got none")
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
@@ -644,7 +652,7 @@ func TestCDIManagerGetNodeGroupInfo(t *testing.T) {
 		expectedNodeGroupUUID string
 	}{
 		{
-			name:       "When correctly getting node group info",
+			name:       "When correct node group info is obtained as expected",
 			useCapiBmh: true,
 			nodeGroup: client.CMNodeGroup{
 				UUID: "10000000-0000-0000-0000-000000000000",
@@ -666,7 +674,9 @@ func TestCDIManagerGetNodeGroupInfo(t *testing.T) {
 
 			nodeGroupInfo, err := m.getNodeGroupInfo(context.Background(), tc.nodeGroup)
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Error("expected error, but got none")
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
@@ -688,7 +698,6 @@ func TestCDIManagerGetNodeGroupInfo(t *testing.T) {
 func TestCDIManagerGetMinMaxNums(t *testing.T) {
 	testCases := []struct {
 		name        string
-		useCapiBmh  bool
 		machineUUID string
 		modelName   string
 		expectedErr bool
@@ -696,8 +705,7 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 		expectedMax int
 	}{
 		{
-			name:        "When correctly getting min/max number of fabric devices",
-			useCapiBmh:  true,
+			name:        "When correct min/max number of fabric devices is obtained as expected",
 			machineUUID: "00000000-0000-0000-0000-000000000000",
 			modelName:   "DEVICE 1",
 			expectedErr: false,
@@ -708,7 +716,7 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
-				UseCapiBmh: tc.useCapiBmh,
+				UseCapiBmh: false,
 				DRAenabled: true,
 			}
 			m, server, stop := createTestManager(t, testSpec)
@@ -717,7 +725,9 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 
 			min, max, err := m.getMinMaxNums(context.Background(), tc.machineUUID, tc.modelName)
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Error("expected error, but got none")
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
@@ -922,7 +932,7 @@ func TestCDIManagerGeneratePool(t *testing.T) {
 		expectedLabel        string
 	}{
 		{
-			name:          "When correctly provided device",
+			name:          "When correct pool is generated as expected",
 			useCapiBmh:    false,
 			nodeCount:     1,
 			k8sDeviceName: "test-device-1",
@@ -935,7 +945,7 @@ func TestCDIManagerGeneratePool(t *testing.T) {
 			expectedLabel:        "cohdi.com/test-device-1",
 		},
 		{
-			name:          "When bindingTimeout is nil",
+			name:          "When BindingTimeout is nil",
 			useCapiBmh:    false,
 			nodeCount:     1,
 			k8sDeviceName: "test-device-1",
@@ -1072,7 +1082,7 @@ func TestInitDrvierResources(t *testing.T) {
 		expectedDR          *resourceslice.DriverResources
 	}{
 		{
-			name:                "When correct DeviceInfo provided",
+			name:                "When correct DeviceInfo is provided and DriverResource is initialized as expected",
 			expectedDriverNames: []string{"test-driver-1", "test-driver-2"},
 			expectedDRLength:    2,
 			expectedDR: &resourceslice.DriverResources{
@@ -1103,11 +1113,10 @@ func TestGetFabricID(t *testing.T) {
 		name             string
 		machineList      *client.FMMachineList
 		machineUUID      string
-		expectedErr      bool
 		expectedFabricID *int
 	}{
 		{
-			name: "When correctly getting fabric ID",
+			name: "When correct fabric ID is obtained as expected",
 			machineList: &client.FMMachineList{
 				Data: client.FMMachines{
 					Machines: []client.FMMachine{
@@ -1119,7 +1128,6 @@ func TestGetFabricID(t *testing.T) {
 				},
 			},
 			machineUUID:      "00000000-0000-0000-0000-000000000001",
-			expectedErr:      false,
 			expectedFabricID: ptr.To(1),
 		},
 		{
@@ -1134,25 +1142,19 @@ func TestGetFabricID(t *testing.T) {
 				},
 			},
 			machineUUID:      "00000000-0000-0000-0000-000000000002",
-			expectedErr:      false,
 			expectedFabricID: nil,
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			fabricID := getFabricID(tc.machineList, tc.machineUUID)
-			if tc.expectedErr {
-
-			} else if !tc.expectedErr {
-				if fabricID != nil && tc.expectedFabricID != nil {
-					if *fabricID != *tc.expectedFabricID {
-						t.Errorf("unexpected fabric id, expected %d but got %d", *tc.expectedFabricID, *fabricID)
-
-					}
-				} else {
-					if tc.expectedFabricID != nil {
-						t.Errorf("unexpected fabric id, expected %d but got nil", *tc.expectedFabricID)
-					}
+			if fabricID != nil && tc.expectedFabricID != nil {
+				if *fabricID != *tc.expectedFabricID {
+					t.Errorf("unexpected fabric id, expected %d but got %d", *tc.expectedFabricID, *fabricID)
+				}
+			} else {
+				if tc.expectedFabricID != nil {
+					t.Errorf("unexpected fabric id, expected %d but got nil", *tc.expectedFabricID)
 				}
 			}
 		})

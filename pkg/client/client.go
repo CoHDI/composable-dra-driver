@@ -228,9 +228,9 @@ func (c *CDIClient) GetIMToken(ctx context.Context, secret idManagerSecret) (*IM
 	if err != nil {
 		return nil, err
 	}
-	err = resp.into(ctx, imToken)
+	err = resp.into(imToken)
 	if err != nil {
-		slog.Error(err.Error(), "response", string(resp.body))
+		slog.Error(err.Error(), "code", resp.statusCode, "requestID", GetRequestIdFromContext(ctx), "response", string(resp.body))
 		return nil, err
 	}
 	return imToken, nil
@@ -258,9 +258,9 @@ func (c *CDIClient) GetFMMachineList(ctx context.Context) (*FMMachineList, error
 	if err != nil {
 		return nil, err
 	}
-	err = resp.into(ctx, fmMachineList)
+	err = resp.into(fmMachineList)
 	if err != nil {
-		slog.Error(err.Error(), "response", string(resp.body))
+		slog.Error(err.Error(), "code", resp.statusCode, "requestID", GetRequestIdFromContext(ctx), "response", string(resp.body))
 		return nil, err
 	}
 	return fmMachineList, nil
@@ -299,9 +299,9 @@ func (c *CDIClient) GetFMAvailableReservedResources(ctx context.Context, muuid s
 	if err != nil {
 		return nil, err
 	}
-	err = resp.into(ctx, fmAvailables)
+	err = resp.into(fmAvailables)
 	if err != nil {
-		slog.Error(err.Error(), "response", string(resp.body))
+		slog.Error(err.Error(), "code", resp.statusCode, "requestID", GetRequestIdFromContext(ctx), "response", string(resp.body))
 		return nil, err
 	}
 	return fmAvailables, nil
@@ -326,9 +326,9 @@ func (c *CDIClient) GetCMNodeGroups(ctx context.Context) (*CMNodeGroups, error) 
 	if err != nil {
 		return nil, err
 	}
-	err = resp.into(ctx, cmNodeGroups)
+	err = resp.into(cmNodeGroups)
 	if err != nil {
-		slog.Error(err.Error(), "response", string(resp.body))
+		slog.Error(err.Error(), "code", resp.statusCode, "requestID", GetRequestIdFromContext(ctx), "response", string(resp.body))
 		return nil, err
 	}
 	return cmNodeGroups, nil
@@ -353,9 +353,9 @@ func (c *CDIClient) GetCMNodeGroupInfo(ctx context.Context, ng CMNodeGroup) (*CM
 	if err != nil {
 		return nil, err
 	}
-	err = resp.into(ctx, cmNodeGroupInfo)
+	err = resp.into(cmNodeGroupInfo)
 	if err != nil {
-		slog.Error(err.Error(), "response", string(resp.body))
+		slog.Error(err.Error(), "code", resp.statusCode, "requestID", GetRequestIdFromContext(ctx), "response", string(resp.body))
 		return nil, err
 	}
 	return cmNodeGroupInfo, nil
@@ -380,9 +380,9 @@ func (c *CDIClient) GetCMNodeDetails(ctx context.Context, muuid string) (*CMNode
 	if err != nil {
 		return nil, err
 	}
-	err = resp.into(ctx, cmNodeDetails)
+	err = resp.into(cmNodeDetails)
 	if err != nil {
-		slog.Error(err.Error(), "response", string(resp.body))
+		slog.Error(err.Error(), "code", resp.statusCode, "requestID", GetRequestIdFromContext(ctx), "response", string(resp.body))
 		return nil, err
 	}
 	return cmNodeDetails, nil
@@ -417,15 +417,13 @@ func (c *CDIClient) do(ctx context.Context, req *http.Request) (*result, error) 
 	return &result, nil
 }
 
-func (r *result) into(ctx context.Context, v any) error {
+func (r *result) into(v any) error {
 	if r.statusCode < 200 || r.statusCode >= 300 {
 		res := &unsuccessfulResponse{}
 		if err := json.Unmarshal(r.body, res); err != nil || res.Detail.Message == "" {
 			res.Detail.Message = string(r.body)
 		}
-		err := fmt.Errorf("received unsuccessful response: %s", res.Detail.Message)
-		slog.Error(err.Error(), "code", r.statusCode, "requestID", GetRequestIdFromContext(ctx))
-		return err
+		return fmt.Errorf("received unsuccessful response: %s", res.Detail.Message)
 	}
 	if err := json.Unmarshal(r.body, v); err != nil {
 		return fmt.Errorf("failed to read response data into %T: %v", v, err)

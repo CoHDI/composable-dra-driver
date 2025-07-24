@@ -77,7 +77,7 @@ func TestCDIClientGetIMToken(t *testing.T) {
 		expectedErrMsg string
 	}{
 		{
-			name:     "When getting IM token with a correct password",
+			name:     "When IM token is obtained as expected with correct password",
 			password: "pass",
 			realm:    "CDI_DRA_Test",
 			expectedToken: &IMToken{
@@ -94,14 +94,14 @@ func TestCDIClientGetIMToken(t *testing.T) {
 			expectedErr: false,
 		},
 		{
-			name:           "When provided a invalid password",
+			name:           "When provided password is invalid",
 			password:       "invalid-pass",
 			realm:          "CDI_DRA_Test",
 			expectedErr:    true,
 			expectedErrMsg: "received unsuccessful response",
 		},
 		{
-			name:           "When provided a invalid realm",
+			name:           "When provided realm is invalid",
 			password:       "pass",
 			realm:          "invalid-charactor-#$%&\t\n",
 			expectedErr:    true,
@@ -153,7 +153,7 @@ func TestCDIClientGetFMMachineList(t *testing.T) {
 		expectedMachineList *FMMachineList
 	}{
 		{
-			name:        "When get FM machine list",
+			name:        "When correct FM machine list obtained as expected",
 			tenantId:    "00000000-0000-0001-0000-000000000000",
 			expectedErr: false,
 			expectedMachineList: &FMMachineList{
@@ -176,7 +176,9 @@ func TestCDIClientGetFMMachineList(t *testing.T) {
 			defer server.Close()
 			mList, err := client.GetFMMachineList(context.Background())
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Errorf("expected error, but got none")
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
@@ -199,7 +201,7 @@ func TestCDIClientGetFMAvailableReservedResources(t *testing.T) {
 		expectedAvailableReservedResources *FMAvailableReservedResources
 	}{
 		{
-			name:        "When correctly getting FM available reserved resources",
+			name:        "When correct FM available reserved resource num is obtained as expected",
 			tenantId:    "00000000-0000-0001-0000-000000000000",
 			machineUUID: "00000000-0000-0000-0000-000000000000",
 			deviceModel: "DEVICE 1",
@@ -220,7 +222,9 @@ func TestCDIClientGetFMAvailableReservedResources(t *testing.T) {
 
 			avaialbleNum, err := client.GetFMAvailableReservedResources(context.Background(), tc.machineUUID, tc.deviceModel)
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Errorf("expected error, but got none")
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
@@ -242,13 +246,14 @@ func TestCDIClientGetCMNodeGroups(t *testing.T) {
 		expectedNodeGroups *CMNodeGroups
 	}{
 		{
-			name:        "When correctly getting CM nodegroups",
+			name:        "When correct CM nodegroups are obtained as expected",
 			tenantId:    "00000000-0000-0001-0000-000000000000",
 			clusterId:   "00000000-0000-0000-0001-000000000000",
 			expectedErr: false,
 			expectedNodeGroups: &CMNodeGroups{
 				NodeGroups: []CMNodeGroup{
 					{
+						Name: "NodeGroup1",
 						UUID: "10000000-0000-0000-0000-000000000000",
 					},
 				},
@@ -264,7 +269,9 @@ func TestCDIClientGetCMNodeGroups(t *testing.T) {
 
 			nodeGroups, err := client.GetCMNodeGroups(context.Background())
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Errorf("expected error, but got none")
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
@@ -287,13 +294,14 @@ func TestCDIClientGetCMNodeGroupInfo(t *testing.T) {
 		expectedNodeGroupInfo *CMNodeGroupInfo
 	}{
 		{
-			name:          "When correctly getting CM nodegroups",
+			name:          "When correct CM nodegroup info is obtained as expected",
 			tenantId:      "00000000-0000-0001-0000-000000000000",
 			clusterId:     "00000000-0000-0000-0001-000000000000",
 			nodeGroupUUID: "10000000-0000-0000-0000-000000000000",
 			expectedErr:   false,
 			expectedNodeGroupInfo: &CMNodeGroupInfo{
 				UUID: "10000000-0000-0000-0000-000000000000",
+				Name: "NodeGroup1",
 				MachineIDs: []string{
 					"00000000-0000-0000-0000-000000000000",
 				},
@@ -312,7 +320,9 @@ func TestCDIClientGetCMNodeGroupInfo(t *testing.T) {
 			}
 			ngInfo, err := client.GetCMNodeGroupInfo(context.Background(), nodeGroup)
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Errorf("expected error, but got none")
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
@@ -335,7 +345,7 @@ func TestCDIClientGetCMNodeDetails(t *testing.T) {
 		expectedNodeDetails *CMNodeDetails
 	}{
 		{
-			name:        "When correctly getting CM nodegroups",
+			name:        "When correct CM node details are obtained as expected",
 			tenantId:    "00000000-0000-0001-0000-000000000000",
 			clusterId:   "00000000-0000-0000-0001-000000000000",
 			machineUUID: "00000000-0000-0000-0000-000000000000",
@@ -378,7 +388,9 @@ func TestCDIClientGetCMNodeDetails(t *testing.T) {
 
 			nodeDetails, err := client.GetCMNodeDetails(context.Background(), tc.machineUUID)
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Errorf("expected error, but got none")
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
@@ -524,7 +536,7 @@ func TestResultInto(t *testing.T) {
 				statusCode: tc.statusCode,
 			}
 
-			err := result.into(context.Background(), tc.intoStruct)
+			err := result.into(tc.intoStruct)
 
 			if tc.expectedErr {
 				if err == nil {

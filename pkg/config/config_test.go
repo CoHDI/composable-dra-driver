@@ -46,19 +46,19 @@ func TestGetDeviceInfos(t *testing.T) {
 		expectedErrMsg      string
 	}{
 		{
-			name:                "When provided correct ConfigMap",
+			name:                "When correct ConfigMap is provided",
 			cm:                  cms[0],
 			expectedDriverNames: []string{"test-driver-1", "test-driver-2"},
 			expectedLength:      3,
 			expectedErr:         false,
 		},
 		{
-			name:        "When not exists device-info in ConfigMap",
+			name:        "When device-info in ConfigMap is not existed",
 			cm:          cms[1],
 			expectedErr: false,
 		},
 		{
-			name:           "When device-info is not formed as YAML",
+			name:           "When device-info in ConfigMap is not formed as YAML",
 			cm:             cms[2],
 			expectedErr:    true,
 			expectedErrMsg: "yaml: unmarshal errors",
