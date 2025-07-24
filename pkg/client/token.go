@@ -113,8 +113,6 @@ func (ts *idManagerTokenSource) Token() (*oauth2.Token, error) {
 	slog.Debug("IM token API completed successfully", "requestID", GetRequestIdFromContext(ctx))
 
 	token.AccessToken = imToken.AccessToken
-	token.TokenType = imToken.TokenType
-	token.RefreshToken = imToken.RefreshToken
 
 	parts := strings.Split(imToken.AccessToken, ".")
 	if len(parts) < 2 {

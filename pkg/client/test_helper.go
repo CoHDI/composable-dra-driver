@@ -93,7 +93,19 @@ func createTestServerCertificate(caCertData config.CertData) (certPEMBlock, keyP
 
 var testAccessToken string = "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":2069550000}`))
 
-var testIMToken IMToken = IMToken{
+type TestIMToken struct {
+	AccessToken      string `json:"access_token"`
+	ExpiresIn        int64  `json:"expires_in"`
+	RefreshExpiresIn int64  `json:"refresh_expires_in"`
+	RefreshToken     string `json:"refresh_token"`
+	TokenType        string `json:"token_type"`
+	IDToken          string `json:"id_token"`
+	NotBeforePolicy  int64  `json:"not-before-policy"`
+	SessionState     string `json:"session_state"`
+	Scope            string `json:"scope"`
+}
+
+var testIMToken TestIMToken = TestIMToken{
 	AccessToken:      testAccessToken,
 	ExpiresIn:        1,
 	RefreshExpiresIn: 2,

@@ -458,10 +458,6 @@ func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.CMNo
 	for _, machineID := range nodeGroupInfo.MachineIDs {
 		slog.Debug("got node group info, the machine belongs in the node group", "machineUUID", machineID, "NodeGroupName", nodeGroupInfo.Name)
 	}
-	slog.Debug("got node group info, resources length", "resourceLen", len(nodeGroupInfo.Resources), "NodeGroupName", nodeGroupInfo.Name)
-	for _, resource := range nodeGroupInfo.Resources {
-		slog.Debug("got node group info, resource min/max", "modelName", resource.ModelName, "min", safeReference(resource.MinResourceCount), "max", safeReference(resource.MaxResourceCount))
-	}
 	return nodeGroupInfo, nil
 }
 
