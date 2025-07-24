@@ -61,7 +61,7 @@ func TestGetDeviceInfos(t *testing.T) {
 			name:           "When device-info in ConfigMap is not formed as YAML",
 			cm:             cms[2],
 			expectedErr:    true,
-			expectedErrMsg: "yaml: unmarshal errors",
+			expectedErrMsg: "cannot unmarshal",
 		},
 	}
 
