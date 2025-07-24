@@ -93,7 +93,19 @@ func createTestServerCertificate(caCertData config.CertData) (certPEMBlock, keyP
 
 var testAccessToken string = "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":2069550000}`))
 
-var testIMToken IMToken = IMToken{
+type TestIMToken struct {
+	AccessToken      string `json:"access_token"`
+	ExpiresIn        int64  `json:"expires_in"`
+	RefreshExpiresIn int64  `json:"refresh_expires_in"`
+	RefreshToken     string `json:"refresh_token"`
+	TokenType        string `json:"token_type"`
+	IDToken          string `json:"id_token"`
+	NotBeforePolicy  int64  `json:"not-before-policy"`
+	SessionState     string `json:"session_state"`
+	Scope            string `json:"scope"`
+}
+
+var testIMToken TestIMToken = TestIMToken{
 	AccessToken:      testAccessToken,
 	ExpiresIn:        1,
 	RefreshExpiresIn: 2,
@@ -270,7 +282,33 @@ var testNodeGroupInfos2 = []CMNodeGroupInfo{
 	},
 }
 
-var testNodeDetails1 = createTestNodeDetails(1)
+var testNodeDetails1 = CMNodeDetails{
+	Data: CMTenant{
+		Cluster: CMCluster{
+			Machine: CMMachine{
+				UUID: "00000000-0000-0000-0000-000000000000",
+				ResSpecs: []CMResSpec{
+					{
+						Type:            "gpu",
+						MaxResSpecCount: ptr.To(3),
+						MinResSpecCount: ptr.To(1),
+						Selector: CMSelector{
+							Expression: CMExpression{
+								Conditions: []Condition{
+									{
+										Column:   "model",
+										Operator: "eq",
+										Value:    "DEVICE 1",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	},
+}
 
 var testNodeDetails2 = createTestNodeDetails(9)
 
@@ -416,6 +454,7 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 				}
 				if strings.HasSuffix(r.URL.Path, "/available-reserved-resources") {
 					muuid := strings.TrimSuffix(remainder, "/available-reserved-resources")
+					var response []byte
 					regex := regexp.MustCompile("^/[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
 					if regex.MatchString(muuid) {
 						index, _ := strconv.Atoi(string(muuid[len(muuid)-1]))
@@ -426,7 +465,7 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 								if value, exist := query["condition"]; exist {
 									_ = json.Unmarshal([]byte(value[0]), &condition)
 									if condition.Column == "model" && condition.Operator == "eq" && slices.Contains(deviceList, condition.Value) {
-										response, _ := json.Marshal(testAvailableReservedResources[condition.Value][(index)%3])
+										response, _ = json.Marshal(testAvailableReservedResources[condition.Value][(index)%3])
 										w.Header().Set("Content-Type", "application/json")
 										w.WriteHeader(http.StatusOK)
 										w.Write(response)
@@ -434,6 +473,17 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 								}
 							}
 						}
+					}
+					if len(response) == 0 {
+						unSuccess := unsuccessfulResponse{
+							Detail: responseDetail{
+								Message: "FM available reserved resources API is failed",
+							},
+						}
+						response, _ = json.Marshal(unSuccess)
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(http.StatusNotFound)
+						w.Write(response)
 					}
 				}
 			}
@@ -513,10 +563,12 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 						index, _ := strconv.Atoi(string(muuid[len(muuid)-1]))
 						var response []byte
 						if tenantId == tenantID1 {
-							response, _ = json.Marshal(testNodeDetails1[index])
+							response, _ = json.Marshal(testNodeDetails1)
 						}
 						if tenantId == tenantID2 {
-							response, _ = json.Marshal(testNodeDetails2[index])
+							if index <= len(testNodeDetails2) {
+								response, _ = json.Marshal(testNodeDetails2[index])
+							}
 						}
 						if len(response) > 0 {
 							w.Header().Set("Content-Type", "application/json")

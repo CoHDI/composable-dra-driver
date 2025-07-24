@@ -407,8 +407,7 @@ func (m *CDIManager) getMachineList(ctx context.Context) (*client.FMMachineList,
 	// Publish API to get a machine list from FabricManager
 	mList, err := m.cdiClient.GetFMMachineList(ctx)
 	if err != nil {
-		slog.Error("FM machine list API failed", "requestID", client.GetRequestIdFromContext(ctx))
-		return nil, err
+		return nil, fmt.Errorf("FM machine list API failed, requestID=%s", client.GetRequestIdFromContext(ctx))
 	}
 	slog.Debug("FM machine list API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	for _, machine := range mList.Data.Machines {
@@ -424,8 +423,7 @@ func (m *CDIManager) getAvailableNums(ctx context.Context, muuid string, modelNa
 	// Publish API to get available reserved resources from FabricManager
 	availableResources, err := m.cdiClient.GetFMAvailableReservedResources(ctx, muuid, modelName)
 	if err != nil {
-		slog.Error("FM available reserved resources API failed", "requestID", client.GetRequestIdFromContext(ctx))
-		return 0, err
+		return 0, fmt.Errorf("FM available reserved resources API failed, requestID=%s", client.GetRequestIdFromContext(ctx))
 	}
 	slog.Debug("FM available reserved resources API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	return availableResources.ReservedResourceNum, nil
@@ -438,8 +436,7 @@ func (m *CDIManager) getNodeGroups(ctx context.Context) (*client.CMNodeGroups, e
 	// Publish API to get node groups from ClusterManager
 	nodeGroups, err := m.cdiClient.GetCMNodeGroups(ctx)
 	if err != nil {
-		slog.Error("CM node groups API failed", "requestID", client.GetRequestIdFromContext(ctx))
-		return nil, err
+		return nil, fmt.Errorf("CM node groups API failed, requestID=%s", client.GetRequestIdFromContext(ctx))
 	}
 	slog.Debug("CM node groups API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	for _, nodeGroup := range nodeGroups.NodeGroups {
@@ -455,16 +452,11 @@ func (m *CDIManager) getNodeGroupInfo(ctx context.Context, nodeGroup client.CMNo
 	// Publish API to get a node group info from ClusterManager
 	nodeGroupInfo, err := m.cdiClient.GetCMNodeGroupInfo(ctx, nodeGroup)
 	if err != nil {
-		slog.Error("CM node group info API failed", "requestID", client.GetRequestIdFromContext(ctx))
-		return nil, err
+		return nil, fmt.Errorf("CM node group info API failed, requestID=%s", client.GetRequestIdFromContext(ctx))
 	}
 	slog.Debug("CM node group info API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	for _, machineID := range nodeGroupInfo.MachineIDs {
 		slog.Debug("got node group info, the machine belongs in the node group", "machineUUID", machineID, "NodeGroupName", nodeGroupInfo.Name)
-	}
-	slog.Debug("got node group info, resources length", "resourceLen", len(nodeGroupInfo.Resources), "NodeGroupName", nodeGroupInfo.Name)
-	for _, resource := range nodeGroupInfo.Resources {
-		slog.Debug("got node group info, resource min/max", "modelName", resource.ModelName, "min", safeReference(resource.MinResourceCount), "max", safeReference(resource.MaxResourceCount))
 	}
 	return nodeGroupInfo, nil
 }
@@ -476,8 +468,7 @@ func (m *CDIManager) getMinMaxNums(ctx context.Context, muuid string, modelName 
 	// Publish API to get node details from ClusterManager
 	nodeDetails, err := m.cdiClient.GetCMNodeDetails(ctx, muuid)
 	if err != nil {
-		slog.Error("CM node details API failed", "requestID", client.GetRequestIdFromContext(ctx))
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("CM node details API failed, requestID=%s", client.GetRequestIdFromContext(ctx))
 	}
 	slog.Debug("CM node details API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	for _, resspec := range nodeDetails.Data.Cluster.Machine.ResSpecs {

@@ -82,19 +82,19 @@ func TestGroupVersionHasResource(t *testing.T) {
 
 func TestIsDRAEnabled(t *testing.T) {
 	testCases := []struct {
-		name        string
-		DRAEnable   bool
-		expectedErr bool
+		name           string
+		DRAEnable      bool
+		expectedEnable bool
 	}{
 		{
-			name:        "When DRA is enabled",
-			DRAEnable:   true,
-			expectedErr: false,
+			name:           "When DRA is enabled",
+			DRAEnable:      true,
+			expectedEnable: true,
 		},
 		{
-			name:        "When DRA is disabled",
-			DRAEnable:   false,
-			expectedErr: true,
+			name:           "When DRA is disabled",
+			DRAEnable:      false,
+			expectedEnable: false,
 		},
 	}
 
@@ -107,14 +107,8 @@ func TestIsDRAEnabled(t *testing.T) {
 			}
 			kubeclient, _ := CreateTestClient(t, testConfig)
 			enabled := IsDRAEnabled(kubeclient.Discovery())
-			if tc.expectedErr {
-				if enabled {
-					t.Errorf("expected DRA is disable but enabled")
-				}
-			} else if !tc.expectedErr {
-				if !enabled {
-					t.Errorf("unexpoected error: DRA is not enabled")
-				}
+			if enabled != tc.expectedEnable {
+				t.Errorf("unexpected result, expected DRA is %t but got %t", tc.expectedEnable, enabled)
 			}
 		})
 	}
@@ -129,13 +123,13 @@ func TestKubeControllersGetNode(t *testing.T) {
 		expectedErr      bool
 	}{
 		{
-			name:             "When correctly getting node as expected",
+			name:             "When correct node is obtained as expected",
 			nodeName:         "test-node-1",
 			expectedNodeName: "test-node-1",
 			expectedErr:      false,
 		},
 		{
-			name:        "When specify not existed node name",
+			name:        "When not existed node name is specified",
 			nodeName:    "dummy-node",
 			expectedErr: false,
 		},
@@ -189,7 +183,7 @@ func TestKubeControllersGetConfigMap(t *testing.T) {
 		expectedErr       bool
 	}{
 		{
-			name:  "When correctly creating ConfigMap",
+			name:  "When correct ConfigMap is obtained as expected",
 			cmkey: "cdi-dra-dds/test-configmap-1",
 			expectedConfigMap: testConfigMap{
 				name:      "test-configmap-1",
@@ -198,12 +192,12 @@ func TestKubeControllersGetConfigMap(t *testing.T) {
 			expectedErr: false,
 		},
 		{
-			name:        "When get non-exisistence ConfigMap",
+			name:        "When non-exisistent ConfigMap key is provided",
 			cmkey:       "non-exist-ns/non-exist-cm",
 			expectedErr: false,
 		},
 		{
-			name:        "When provided invalid key",
+			name:        "When provided input is not formed as key",
 			cmkey:       "not-key-formed",
 			expectedErr: false,
 		},
@@ -227,9 +221,6 @@ func TestKubeControllersGetConfigMap(t *testing.T) {
 			if tc.expectedErr {
 				if err == nil {
 					t.Error("expected error, but got none")
-				} else {
-					// TODO: no test case of expectedErr = true
-					t.Errorf("expected error message, got %q", err.Error())
 				}
 			} else if !tc.expectedErr {
 				if err != nil {
@@ -263,7 +254,7 @@ func TestKubeControllersGetSecret(t *testing.T) {
 		expectedCertificate  string
 	}{
 		{
-			name:                 "When correctly create Secret",
+			name:                 "When correct Secret is obtained as expected",
 			certPem:              caData.CertPem,
 			secretCase:           1,
 			expectedErr:          false,
@@ -275,7 +266,7 @@ func TestKubeControllersGetSecret(t *testing.T) {
 			expectedCertificate:  caData.CertPem,
 		},
 		{
-			name:             "When Secret has password more then limits",
+			name:             "When Secret has username which exceeds the limit",
 			secretCase:       2,
 			expectedErr:      false,
 			expectedUserName: config.ExceededSecretInfo,
@@ -368,7 +359,9 @@ func TestKubeControllersListProviderIDs(t *testing.T) {
 
 			providerIDs, err := controllers.ListProviderIDs()
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Error("expected error, but got none")
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
@@ -394,7 +387,7 @@ func TestKubeControllersFindNodeNameByProviderID(t *testing.T) {
 		expectedNodeName string
 	}{
 		{
-			name:             "When correctly providerID is provided if useCapiBmh is true",
+			name:             "When correct node name is obtained as expected if useCapiBmh is true",
 			nodeCount:        1,
 			useCapiBmh:       true,
 			providerID:       "00000000-0000-0000-0000-000000000000",
@@ -402,7 +395,7 @@ func TestKubeControllersFindNodeNameByProviderID(t *testing.T) {
 			expectedNodeName: "test-node-0",
 		},
 		{
-			name:             "When correctly providerID is provided if useCapiBmh is false",
+			name:             "When correct node name is obtained as expected if useCapiBmh is false",
 			nodeCount:        2,
 			useCapiBmh:       false,
 			providerID:       "00000000-0000-0000-0000-000000000001",
@@ -427,7 +420,9 @@ func TestKubeControllersFindNodeNameByProviderID(t *testing.T) {
 
 			nodeName, err := controllers.FindNodeNameByProviderID(normalizedProviderID(tc.providerID))
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Error("expected error, but got none")
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
@@ -449,7 +444,7 @@ func TestKubeControllersFindMachineUUIDByProviderID(t *testing.T) {
 		expectedMachineUUID string
 	}{
 		{
-			name:                "When correctly provider ID is provided",
+			name:                "When correct machine UUID is obtained as expected if useCapiBmh is true",
 			nodeCount:           1,
 			providerID:          "00000000-0000-0000-0000-000000000000",
 			expectedErr:         false,
@@ -478,7 +473,9 @@ func TestKubeControllersFindMachineUUIDByProviderID(t *testing.T) {
 
 			muuid, err := controllers.FindMachineUUIDByProviderID(normalizedProviderString(tc.providerID))
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Error("expected error, but got none")
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)

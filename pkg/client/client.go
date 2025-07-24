@@ -44,128 +44,6 @@ type CDIClient struct {
 	TokenSource oauth2.TokenSource
 }
 
-type IMToken struct {
-	AccessToken      string `json:"access_token"`
-	ExpiresIn        int64  `json:"expires_in"`
-	RefreshExpiresIn int64  `json:"refresh_expires_in"`
-	RefreshToken     string `json:"refresh_token"`
-	TokenType        string `json:"token_type"`
-	IDToken          string `json:"id_token"`
-	NotBeforePolicy  int64  `json:"not-before-policy"`
-	SessionState     string `json:"session_state"`
-	Scope            string `json:"scope"`
-}
-
-type FMMachineList struct {
-	Data FMMachines `json:"data"`
-}
-
-type FMMachines struct {
-	Machines []FMMachine `json:"machines"`
-}
-
-type FMMachine struct {
-	FabricUUID   *string             `json:"fabric_uuid"`
-	FabricID     *int                `json:"fabric_id"`
-	MachineUUID  string              `json:"mach_uuid"`
-	MachineID    int                 `json:"mach_id"`
-	MachineName  string              `json:"mach_name"`
-	MachineOwner string              `json:"mach_owner"`
-	Resources    []FMMachineResource `json:"resources"`
-}
-
-type FMMachineResource struct {
-	ResourceUUID     string `json:"res_uuid"`
-	ResourceName     string `json:"res_name"`
-	ResourceType     string `json:"res_type"`
-	ResourceStatus   int    `json:"res_status"`
-	ResourceOPStatus string `json:"res_op_status"`
-}
-
-type FMAvailableReservedResources struct {
-	FabricUUID          string `json:"fabric_uuid"`
-	FabricID            int    `json:"fabric_id"`
-	ReservedResourceNum int    `json:"reserved_res_num_per_fabric"`
-}
-
-type Condition struct {
-	Column   string `json:"column"`
-	Operator string `json:"operator"`
-	Value    string `json:"value"`
-}
-
-type CMNodeGroups struct {
-	NodeGroups []CMNodeGroup `json:"nodegroups"`
-}
-
-type CMNodeGroup struct {
-	UUID      string `json:"uuid"`
-	Name      string `json:"name"`
-	NodeCount int    `json:"node_count"`
-	Role      string `json:"role"`
-}
-
-type CMNodeGroupInfo struct {
-	UUID         string                `json:"uuid"`
-	Name         string                `json:"name"`
-	Composable   bool                  `json:"composable"`
-	NodeCount    int                   `json:"node_count"`
-	Role         string                `json:"role"`
-	MinNodeCount int                   `json:"min_node_count"`
-	MaxNodeCount int                   `json:"max_node_count"`
-	Status       string                `json:"status"`
-	StatusReason string                `json:"status_reason"`
-	Resources    []CMNodeGroupResource `json:"resources"`
-	NodeIDs      []string              `json:"node_ids"`
-	MachineIDs   []string              `json:"mach_ids"`
-}
-
-type CMNodeGroupResource struct {
-	ResourceName     string `json:"resource_name"`
-	ResourceType     string `json:"resource_type"`
-	ModelName        string `json:"model_name"`
-	MinResourceCount *int   `json:"min_resource_count"`
-	MaxResourceCount *int   `json:"max_resource_count"`
-}
-
-type CMNodeDetails struct {
-	Data CMTenant `json:"data"`
-}
-
-type CMTenant struct {
-	TenantUUID string    `json:"tenant_uuid"`
-	Cluster    CMCluster `json:"cluster"`
-}
-
-type CMCluster struct {
-	ClusterUUID string    `json:"cluster_uuid"`
-	Machine     CMMachine `json:"machine"`
-}
-
-type CMMachine struct {
-	UUID     string      `json:"uuid"`
-	Name     string      `json:"name"`
-	ResSpecs []CMResSpec `json:"resspecs"`
-}
-
-type CMResSpec struct {
-	SpecUUID        string     `json:"spec_uuid"`
-	Type            string     `json:"type"`
-	Selector        CMSelector `json:"selector"`
-	MinResSpecCount *int       `json:"min_resspec_count"`
-	MaxResSpecCount *int       `json:"max_resspec_count"`
-	DeviceCount     int        `json:"device_count"`
-}
-
-type CMSelector struct {
-	Version    string       `json:"version"`
-	Expression CMExpression `json:"expression"`
-}
-
-type CMExpression struct {
-	Conditions []Condition `json:"conditions"`
-}
-
 type RequestIDKey struct{}
 
 func BuildCDIClient(config *config.Config, kc *kube_utils.KubeControllers) (*CDIClient, error) {
@@ -228,9 +106,9 @@ func (c *CDIClient) GetIMToken(ctx context.Context, secret idManagerSecret) (*IM
 	if err != nil {
 		return nil, err
 	}
-	err = resp.into(ctx, imToken)
+	err = resp.into(imToken)
 	if err != nil {
-		slog.Error(err.Error(), "response", string(resp.body))
+		slog.Error(err.Error(), "code", resp.statusCode, "requestID", GetRequestIdFromContext(ctx), "response", string(resp.body))
 		return nil, err
 	}
 	return imToken, nil
@@ -258,9 +136,9 @@ func (c *CDIClient) GetFMMachineList(ctx context.Context) (*FMMachineList, error
 	if err != nil {
 		return nil, err
 	}
-	err = resp.into(ctx, fmMachineList)
+	err = resp.into(fmMachineList)
 	if err != nil {
-		slog.Error(err.Error(), "response", string(resp.body))
+		slog.Error(err.Error(), "code", resp.statusCode, "requestID", GetRequestIdFromContext(ctx), "response", string(resp.body))
 		return nil, err
 	}
 	return fmMachineList, nil
@@ -299,9 +177,9 @@ func (c *CDIClient) GetFMAvailableReservedResources(ctx context.Context, muuid s
 	if err != nil {
 		return nil, err
 	}
-	err = resp.into(ctx, fmAvailables)
+	err = resp.into(fmAvailables)
 	if err != nil {
-		slog.Error(err.Error(), "response", string(resp.body))
+		slog.Error(err.Error(), "code", resp.statusCode, "requestID", GetRequestIdFromContext(ctx), "response", string(resp.body))
 		return nil, err
 	}
 	return fmAvailables, nil
@@ -326,9 +204,9 @@ func (c *CDIClient) GetCMNodeGroups(ctx context.Context) (*CMNodeGroups, error) 
 	if err != nil {
 		return nil, err
 	}
-	err = resp.into(ctx, cmNodeGroups)
+	err = resp.into(cmNodeGroups)
 	if err != nil {
-		slog.Error(err.Error(), "response", string(resp.body))
+		slog.Error(err.Error(), "code", resp.statusCode, "requestID", GetRequestIdFromContext(ctx), "response", string(resp.body))
 		return nil, err
 	}
 	return cmNodeGroups, nil
@@ -353,9 +231,9 @@ func (c *CDIClient) GetCMNodeGroupInfo(ctx context.Context, ng CMNodeGroup) (*CM
 	if err != nil {
 		return nil, err
 	}
-	err = resp.into(ctx, cmNodeGroupInfo)
+	err = resp.into(cmNodeGroupInfo)
 	if err != nil {
-		slog.Error(err.Error(), "response", string(resp.body))
+		slog.Error(err.Error(), "code", resp.statusCode, "requestID", GetRequestIdFromContext(ctx), "response", string(resp.body))
 		return nil, err
 	}
 	return cmNodeGroupInfo, nil
@@ -380,9 +258,9 @@ func (c *CDIClient) GetCMNodeDetails(ctx context.Context, muuid string) (*CMNode
 	if err != nil {
 		return nil, err
 	}
-	err = resp.into(ctx, cmNodeDetails)
+	err = resp.into(cmNodeDetails)
 	if err != nil {
-		slog.Error(err.Error(), "response", string(resp.body))
+		slog.Error(err.Error(), "code", resp.statusCode, "requestID", GetRequestIdFromContext(ctx), "response", string(resp.body))
 		return nil, err
 	}
 	return cmNodeDetails, nil
@@ -417,15 +295,13 @@ func (c *CDIClient) do(ctx context.Context, req *http.Request) (*result, error) 
 	return &result, nil
 }
 
-func (r *result) into(ctx context.Context, v any) error {
+func (r *result) into(v any) error {
 	if r.statusCode < 200 || r.statusCode >= 300 {
 		res := &unsuccessfulResponse{}
 		if err := json.Unmarshal(r.body, res); err != nil || res.Detail.Message == "" {
 			res.Detail.Message = string(r.body)
 		}
-		err := fmt.Errorf("received unsuccessful response: %s", res.Detail.Message)
-		slog.Error(err.Error(), "code", r.statusCode, "requestID", GetRequestIdFromContext(ctx))
-		return err
+		return fmt.Errorf("received unsuccessful response: %s", res.Detail.Message)
 	}
 	if err := json.Unmarshal(r.body, v); err != nil {
 		return fmt.Errorf("failed to read response data into %T: %v", v, err)
