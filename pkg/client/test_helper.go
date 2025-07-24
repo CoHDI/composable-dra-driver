@@ -554,7 +554,7 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 							response, _ = json.Marshal(testNodeDetails1)
 						}
 						if tenantId == tenantID2 {
-							if len(testNodeDetails2) <= index {
+							if index <= len(testNodeDetails2) {
 								response, _ = json.Marshal(testNodeDetails2[index])
 							}
 						}

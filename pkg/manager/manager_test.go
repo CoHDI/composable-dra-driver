@@ -45,8 +45,11 @@ import (
 )
 
 const (
-	fabricIdNum  = 3
-	nodeGroupNum = 3
+	fabricIdNum         = 3
+	nodeGroupNum        = 3
+	BCReady             = "FabricDeviceReady"
+	BCFailureReschedule = "FabricDeviceReschedule"
+	BCFailureFailed     = "FabricDeviceFailed"
 )
 
 func init() {
@@ -70,11 +73,30 @@ func createTestDriverResources() map[string]*resourceslice.DriverResources {
 										StringValue: ptr.To("TEST DEVICE 1"),
 									},
 								},
+								UsageRestrictedToNode:    ptr.To(true),
+								BindingConditions:        []string{BCReady},
+								BindingFailureConditions: []string{BCFailureReschedule, BCFailureFailed},
+								BindingTimeoutSeconds:    ptr.To(int64(600)),
 							},
 						},
 					},
 				},
 				Generation: 1,
+				NodeSelector: &v1.NodeSelector{
+					NodeSelectorTerms: []v1.NodeSelectorTerm{
+						{
+							MatchExpressions: []v1.NodeSelectorRequirement{
+								{
+									Key:      "cohdi.com/fabric",
+									Operator: v1.NodeSelectorOpIn,
+									Values: []string{
+										"true",
+									},
+								},
+							},
+						},
+					},
+				},
 			},
 		},
 	}
@@ -131,8 +153,9 @@ func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *ht
 		deviceInfos:          deviceInfos,
 		labelPrefix:          "cohdi.com",
 		cdiOptions: CDIOptions{
-			useCapiBmh: testSpec.UseCapiBmh,
-			useCM:      testSpec.UseCM,
+			useCapiBmh:     testSpec.UseCapiBmh,
+			useCM:          testSpec.UseCM,
+			bindingTimeout: ptr.To(int64(100)),
 		},
 	}, server, stop
 
@@ -260,20 +283,24 @@ func TestCDIManagerStartResourceSliceController(t *testing.T) {
 	defer stop()
 
 	testCases := []struct {
-		name                string
-		expectedDriverName  string
-		expectedPoolName    string
-		expectedDeviceName  string
-		expectedProductName string
-		expectedErr         bool
+		name                            string
+		expectedDriverName              string
+		expectedPoolName                string
+		expectedDeviceName              string
+		expectedProductName             string
+		expectedBindingFailureCondition []string
+		expectedBindingTimeout          int64
+		expectedErr                     bool
 	}{
 		{
-			name:                "When the controller starts successfully if DRA is enabled",
-			expectedDriverName:  "test-driver-1",
-			expectedPoolName:    "test-device-1-fabric1",
-			expectedDeviceName:  "test-device-1-gpu1",
-			expectedProductName: "TEST DEVICE 1",
-			expectedErr:         false,
+			name:                            "When the controller starts successfully if DRA is enabled",
+			expectedDriverName:              "test-driver-1",
+			expectedPoolName:                "test-device-1-fabric1",
+			expectedDeviceName:              "test-device-1-gpu1",
+			expectedProductName:             "TEST DEVICE 1",
+			expectedBindingFailureCondition: []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
+			expectedBindingTimeout:          600,
+			expectedErr:                     false,
 		},
 	}
 
@@ -320,6 +347,22 @@ func TestCDIManagerStartResourceSliceController(t *testing.T) {
 							if *device.Attributes["productName"].StringValue != tc.expectedProductName {
 								t.Errorf("unexpected attributes of productName, expected %s but got %s", tc.expectedProductName, *device.Attributes["productName"].StringValue)
 							}
+							for _, expectedBCFailure := range tc.expectedBindingFailureCondition {
+								var found bool
+								for _, bcFailure := range device.BindingFailureConditions {
+									if bcFailure == expectedBCFailure {
+										found = true
+									}
+								}
+								if !found {
+									t.Errorf("expected BindingFailureCondition is not found: %s", expectedBCFailure)
+								}
+							}
+							if device.BindingTimeoutSeconds != nil && tc.expectedBindingTimeout != 0 {
+								if *device.BindingTimeoutSeconds != tc.expectedBindingTimeout {
+									t.Errorf("unexpected BindingTimeout, expected %d but got %d", tc.expectedBindingTimeout, *device.BindingTimeoutSeconds)
+								}
+							}
 						}
 					}
 				}
@@ -345,8 +388,10 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 		expectedDriverName       string
 		expectedDeviceName       string
 		expectedProductName      string
+		expectedBCFailure        []string
+		expectedBindingTimeout   int64
 		expectedAvailableDevices int
-		expectedSliceNum         int
+		expectedResourceSliceNum int
 		expectedFabric           string
 		expectedMaxDevice        string
 		expectedMinDevice        string
@@ -356,26 +401,27 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 			useCapiBmh:               false,
 			useCM:                    false,
 			nodeName:                 "test-node-0",
-			expectedSliceNum:         9,
+			expectedResourceSliceNum: 9,
 			expectedPoolName:         "test-device-1-fabric1",
 			expectedAvailableDevices: 2,
 			expectedFabric:           "1",
 			expectedDeviceName:       "test-device-1",
+			expectedDriverName:       "test-driver-1",
+			expectedProductName:      "TEST DEVICE 1",
+			expectedBCFailure:        []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
+			expectedBindingTimeout:   100,
 			expectedMaxDevice:        "",
 			expectedMinDevice:        "",
 		},
 		{
-			name:                     "When the loop is done successfully with USE_CM/USE_CAPI_BMH is true",
-			useCapiBmh:               true,
-			useCM:                    true,
-			nodeName:                 "test-node-0",
-			expectedSliceNum:         9,
-			expectedPoolName:         "test-device-1-fabric1",
-			expectedAvailableDevices: 2,
-			expectedFabric:           "1",
-			expectedDeviceName:       "test-device-1",
-			expectedMaxDevice:        "3",
-			expectedMinDevice:        "1",
+			name:               "When the loop is done successfully with USE_CM/USE_CAPI_BMH is true",
+			useCapiBmh:         true,
+			useCM:              true,
+			nodeName:           "test-node-0",
+			expectedDeviceName: "test-device-1",
+			expectedFabric:     "1",
+			expectedMaxDevice:  "3",
+			expectedMinDevice:  "1",
 		},
 	}
 	for _, tc := range testCases {
@@ -405,8 +451,8 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 				if err != nil {
 					t.Errorf("unexpected error in kube client List")
 				}
-				if len(resourceslices.Items) != tc.expectedSliceNum {
-					t.Errorf("unexpected ResourceSlice num, expected 9, but got %d", len(resourceslices.Items))
+				if tc.expectedResourceSliceNum != 0 && len(resourceslices.Items) != tc.expectedResourceSliceNum {
+					t.Errorf("unexpected ResourceSlice num, expected %d, but got %d", tc.expectedResourceSliceNum, len(resourceslices.Items))
 				}
 				sliceNumPerPool := make(map[string]int)
 				for _, resourceslice := range resourceslices.Items {
@@ -430,6 +476,22 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 								if productName.StringValue != nil && len(tc.expectedProductName) > 0 && *productName.StringValue != tc.expectedProductName {
 									t.Errorf("unexpected ProductName, expected %s but got %s", tc.expectedProductName, *productName.StringValue)
 								}
+								for _, expectedBCFailure := range tc.expectedBCFailure {
+									var found bool
+									for _, bcFailure := range device.BindingFailureConditions {
+										if bcFailure == expectedBCFailure {
+											found = true
+										}
+									}
+									if !found {
+										t.Errorf("expected BindingFailureCondition is not found, expected %s", expectedBCFailure)
+									}
+								}
+								if device.BindingTimeoutSeconds != nil && tc.expectedBindingTimeout != 0 {
+									if *device.BindingTimeoutSeconds != tc.expectedBindingTimeout {
+										t.Errorf("unexpected BindingTimeout, expected %d but got %d", tc.expectedBindingTimeout, *device.BindingTimeoutSeconds)
+									}
+								}
 							}
 						}
 						if len(tc.expectedDeviceName) > 0 && !deviceFound {
@@ -443,7 +505,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 				}
 				if node != nil {
 					if node.Labels["cohdi.com/fabric"] != tc.expectedFabric {
-						t.Errorf("unexpected label of fabric id, expected %s but got %s", node.Labels["cohdi.com/fabric"], tc.expectedFabric)
+						t.Errorf("unexpected label of fabric id, expected %s but got %s", tc.expectedFabric, node.Labels["cohdi.com/fabric"])
 					}
 					maxLabel := fmt.Sprintf("cohdi.com/%s-size-max", tc.expectedDeviceName)
 					if node.Labels[maxLabel] != tc.expectedMaxDevice {
@@ -749,24 +811,28 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 
 func TestCDIManagerManageCDIResourceSlices(t *testing.T) {
 	testCases := []struct {
-		name                 string
-		availableDeviceCount []int
-		expectedPoolName     string
-		expectedDriverName   string
-		expectedDeviceName   string
-		expectedProductName  string
-		expectedUpdated      bool
-		expectedGeneration   int
+		name                   string
+		availableDeviceCount   []int
+		expectedPoolName       string
+		expectedDriverName     string
+		expectedDeviceName     string
+		expectedProductName    string
+		expectedBCFailure      []string
+		expectedBintindTimeout int64
+		expectedUpdated        bool
+		expectedGeneration     int
 	}{
 		{
-			name:                 "When ResourceSlice is correctly created and updated",
-			availableDeviceCount: []int{3, 5, 1},
-			expectedPoolName:     "test-device-1-fabric2",
-			expectedDriverName:   "test-driver-1",
-			expectedDeviceName:   "test-device-1-gpu0",
-			expectedProductName:  "TEST DEVICE 1",
-			expectedUpdated:      true,
-			expectedGeneration:   1,
+			name:                   "When ResourceSlice is correctly created and updated",
+			availableDeviceCount:   []int{3, 5, 1},
+			expectedPoolName:       "test-device-1-fabric2",
+			expectedDriverName:     "test-driver-1",
+			expectedDeviceName:     "test-device-1-gpu0",
+			expectedProductName:    "TEST DEVICE 1",
+			expectedBCFailure:      []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
+			expectedBintindTimeout: 100,
+			expectedUpdated:        true,
+			expectedGeneration:     1,
 		},
 		{
 			name:                 "When ResourceSlice is not updated",
@@ -829,6 +895,22 @@ func TestCDIManagerManageCDIResourceSlices(t *testing.T) {
 								productName := device.Attributes["productName"]
 								if productName.StringValue != nil && *productName.StringValue != tc.expectedProductName {
 									t.Errorf("unexpected ProductName, expected %s but got %s", tc.expectedProductName, *productName.StringValue)
+								}
+								for _, expectedBCFailure := range tc.expectedBCFailure {
+									var found bool
+									for _, bcFailure := range device.BindingFailureConditions {
+										if bcFailure == expectedBCFailure {
+											found = true
+										}
+									}
+									if !found {
+										t.Errorf("expected BindingFailureCondition is not found, expected %s", expectedBCFailure)
+									}
+								}
+								if device.BindingTimeoutSeconds != nil && tc.expectedBintindTimeout != 0 {
+									if *device.BindingTimeoutSeconds != tc.expectedBintindTimeout {
+										t.Errorf("unexpected BindingTimeout, expected %d but got %d", tc.expectedBintindTimeout, *device.BindingTimeoutSeconds)
+									}
 								}
 							}
 						}
