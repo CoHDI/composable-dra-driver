@@ -142,7 +142,7 @@ func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *ht
 		t.Fatalf("failed to build CDIClient: %v", err)
 	}
 
-	deviceInfos := config.CreateDeviceInfos()
+	deviceInfos := config.CreateDeviceInfos(config.CaseDevInfoCorrect)
 
 	return &CDIManager{
 		coreClient:           kubeclient,
@@ -1155,7 +1155,7 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 }
 
 func TestInitDrvierResources(t *testing.T) {
-	deviceInfos := config.CreateDeviceInfos()
+	deviceInfos := config.CreateDeviceInfos(config.CaseDevInfoCorrect)
 
 	testCases := []struct {
 		name                string
