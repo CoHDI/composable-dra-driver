@@ -34,7 +34,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
-	resourceapi "k8s.io/api/resource/v1beta2"
+	resourceapi "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -73,10 +73,9 @@ func createTestDriverResources() map[string]*resourceslice.DriverResources {
 										StringValue: ptr.To("TEST DEVICE 1"),
 									},
 								},
-								UsageRestrictedToNode:    ptr.To(true),
+								BindsToNode:              ptr.To(true),
 								BindingConditions:        []string{BCReady},
 								BindingFailureConditions: []string{BCFailureReschedule, BCFailureFailed},
-								BindingTimeoutSeconds:    ptr.To(int64(600)),
 							},
 						},
 					},
@@ -153,9 +152,8 @@ func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *ht
 		deviceInfos:          deviceInfos,
 		labelPrefix:          "cohdi.com",
 		cdiOptions: CDIOptions{
-			useCapiBmh:     testSpec.UseCapiBmh,
-			useCM:          testSpec.UseCM,
-			bindingTimeout: ptr.To(int64(100)),
+			useCapiBmh: testSpec.UseCapiBmh,
+			useCM:      testSpec.UseCM,
 		},
 	}, server, stop
 
@@ -325,7 +323,7 @@ func TestCDIManagerStartResourceSliceController(t *testing.T) {
 					time.Sleep(time.Second)
 				}
 			}
-			resourceslices, err := m.coreClient.ResourceV1beta2().ResourceSlices().List(ctx, metav1.ListOptions{})
+			resourceslices, err := m.coreClient.ResourceV1().ResourceSlices().List(ctx, metav1.ListOptions{})
 			if err != nil {
 				t.Errorf("unexpected error in kube client List")
 			}
@@ -356,11 +354,6 @@ func TestCDIManagerStartResourceSliceController(t *testing.T) {
 								}
 								if !found {
 									t.Errorf("expected BindingFailureCondition is not found: %s", expectedBCFailure)
-								}
-							}
-							if device.BindingTimeoutSeconds != nil && tc.expectedBindingTimeout != 0 {
-								if *device.BindingTimeoutSeconds != tc.expectedBindingTimeout {
-									t.Errorf("unexpected BindingTimeout, expected %d but got %d", tc.expectedBindingTimeout, *device.BindingTimeoutSeconds)
 								}
 							}
 						}
@@ -447,7 +440,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 					t.Errorf("unexpected error: %v", err)
 				}
 				time.Sleep(time.Second)
-				resourceslices, err := m.coreClient.ResourceV1beta2().ResourceSlices().List(context.Background(), metav1.ListOptions{})
+				resourceslices, err := m.coreClient.ResourceV1().ResourceSlices().List(context.Background(), metav1.ListOptions{})
 				if err != nil {
 					t.Errorf("unexpected error in kube client List")
 				}
@@ -485,11 +478,6 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 									}
 									if !found {
 										t.Errorf("expected BindingFailureCondition is not found, expected %s", expectedBCFailure)
-									}
-								}
-								if device.BindingTimeoutSeconds != nil && tc.expectedBindingTimeout != 0 {
-									if *device.BindingTimeoutSeconds != tc.expectedBindingTimeout {
-										t.Errorf("unexpected BindingTimeout, expected %d but got %d", tc.expectedBindingTimeout, *device.BindingTimeoutSeconds)
 									}
 								}
 							}
@@ -866,7 +854,7 @@ func TestCDIManagerManageCDIResourceSlices(t *testing.T) {
 				machines := createTestMachines(availableDevice)
 				m.manageCDIResourceSlices(machines, controlles)
 				time.Sleep(time.Second)
-				resourceslices, err := m.coreClient.ResourceV1beta2().ResourceSlices().List(context.Background(), metav1.ListOptions{})
+				resourceslices, err := m.coreClient.ResourceV1().ResourceSlices().List(context.Background(), metav1.ListOptions{})
 				if err != nil {
 					t.Errorf("unexpected error in kube client List")
 				}
@@ -905,11 +893,6 @@ func TestCDIManagerManageCDIResourceSlices(t *testing.T) {
 									}
 									if !found {
 										t.Errorf("expected BindingFailureCondition is not found, expected %s", expectedBCFailure)
-									}
-								}
-								if device.BindingTimeoutSeconds != nil && tc.expectedBintindTimeout != 0 {
-									if *device.BindingTimeoutSeconds != tc.expectedBintindTimeout {
-										t.Errorf("unexpected BindingTimeout, expected %d but got %d", tc.expectedBintindTimeout, *device.BindingTimeoutSeconds)
 									}
 								}
 							}
@@ -1054,7 +1037,6 @@ func TestCDIManagerGeneratePool(t *testing.T) {
 				k8sDeviceName:        tc.k8sDeviceName,
 				draAttributes:        tc.draAttributes,
 				availableDeviceCount: tc.availableDeviceCount,
-				bindingTimeout:       tc.bindingTimeout,
 			}
 			fabricID := 1
 			generation := 0

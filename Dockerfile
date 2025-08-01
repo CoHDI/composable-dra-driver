@@ -1,8 +1,6 @@
 FROM docker.io/golang:1.24.1 AS builder
 WORKDIR /workspace
 
-COPY ./kubernetes ./kubernetes
-
 COPY go.mod go.mod
 COPY go.sum go.sum
 RUN go mod download

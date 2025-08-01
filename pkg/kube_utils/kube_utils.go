@@ -49,7 +49,7 @@ const (
 	Metal3APIVersion          string        = "v1alpha1"
 	BareMetalHostResourceName string        = "baremetalhosts"
 	DRAAPIGroup               string        = "resource.k8s.io"
-	DRAAPIVersion             string        = "v1beta2"
+	DRAAPIVersion             string        = "v1"
 	ResourceSliceResourceName string        = "resourceslices"
 	KubeClientTimeOut         time.Duration = 30 * time.Second
 )

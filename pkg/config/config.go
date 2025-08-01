@@ -23,9 +23,9 @@ import (
 	"time"
 
 	validator "github.com/go-playground/validator/v10"
+	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -34,14 +34,13 @@ const (
 )
 
 type Config struct {
-	LogLevel      int
-	ScanInterval  time.Duration
-	TenantID      string
-	ClusterID     string
-	CDIEndpoint   string
-	UseCapiBmh    bool
-	UseCM         bool
-	BindingTimout *int64
+	LogLevel     int
+	ScanInterval time.Duration
+	TenantID     string
+	ClusterID    string
+	CDIEndpoint  string
+	UseCapiBmh   bool
+	UseCM        bool
 }
 
 type DeviceInfo struct {

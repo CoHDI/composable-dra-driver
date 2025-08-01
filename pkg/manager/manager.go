@@ -26,7 +26,7 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
-	resourceapi "k8s.io/api/resource/v1beta2"
+	resourceapi "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/discovery"
@@ -55,9 +55,8 @@ type CDIManager struct {
 }
 
 type CDIOptions struct {
-	useCapiBmh     bool
-	useCM          bool
-	bindingTimeout *int64
+	useCapiBmh bool
+	useCM      bool
 }
 
 type machine struct {
@@ -77,7 +76,6 @@ type device struct {
 	availableDeviceCount int
 	minDeviceCount       *int
 	maxDeviceCount       *int
-	bindingTimeout       *int64
 }
 
 func StartCDIManager(ctx context.Context, cfg *config.Config) error {
@@ -146,9 +144,8 @@ func StartCDIManager(ctx context.Context, cfg *config.Config) error {
 	ndr := initDriverResources(devInfos)
 
 	options := CDIOptions{
-		useCapiBmh:     cfg.UseCapiBmh,
-		useCM:          cfg.UseCM,
-		bindingTimeout: cfg.BindingTimout,
+		useCapiBmh: cfg.UseCapiBmh,
+		useCM:      cfg.UseCM,
 	}
 
 	m := &CDIManager{
@@ -286,7 +283,6 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 				driverName:           deviceInfo.DriverName,
 				draAttributes:        deviceInfo.DRAAttributes,
 				availableDeviceCount: availableNum,
-				bindingTimeout:       m.cdiOptions.bindingTimeout,
 			}
 		}
 		fabricFound[*machine.fabricID] = deviceList
@@ -541,10 +537,9 @@ func (m *CDIManager) generatePool(device *device, fabricID int, generation int64
 					StringValue: ptr.To(GpuDeviceType),
 				},
 			},
-			UsageRestrictedToNode:    ptr.To(true),
+			BindsToNode:              ptr.To(true),
 			BindingConditions:        []string{"FabricDeviceReady"},
 			BindingFailureConditions: []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
-			BindingTimeoutSeconds:    device.bindingTimeout,
 		}
 		for key, value := range device.draAttributes {
 			d.Attributes[resourceapi.QualifiedName(key)] = resourceapi.DeviceAttribute{StringValue: ptr.To(value)}
