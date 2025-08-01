@@ -127,19 +127,6 @@ func newApp() *cli.App {
 			EnvVars:     []string{"USE_CM"},
 			Value:       false,
 		},
-		&cli.Int64Flag{
-			Name:    "binding-timeout",
-			Usage:   "Timeout in seconds (default: 600) for BindingTimeoutSeconds in ResourceSlice when enable DRADeviceBindingConditions. It must be set from 0 to 86400",
-			EnvVars: []string{"BINDING_TIMEOUT_SEC"},
-			Action: func(ctx *cli.Context, timeout int64) error {
-				if timeout <= 0 || 86400 <= timeout {
-					return fmt.Errorf("binding timeout must be set from 0 to 86400")
-				} else {
-					config.BindingTimout = &timeout
-				}
-				return nil
-			},
-		},
 	}
 
 	app := &cli.App{

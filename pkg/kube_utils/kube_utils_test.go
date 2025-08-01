@@ -43,7 +43,7 @@ func TestGroupVersionHasResource(t *testing.T) {
 		{
 			name:         "When cofirming DRA resource exists",
 			DRAEnable:    true,
-			groupVersion: "resource.k8s.io/v1beta2",
+			groupVersion: "resource.k8s.io/v1",
 			resourceName: "resourceslices",
 			expectedErr:  false,
 		},

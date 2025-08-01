@@ -33,12 +33,14 @@ spec:
           - "-4"
         env:
         - name: CDI_ENDPOINT
-          value: "test.endpoint.com"
+          value: "https://test.endpoint.com"
         - name: TENANT_ID
-          value: "test"
+          value: "00000000-0000-0001-0000-000000000000"
         - name: CLUSTER_ID
-          value: "test"
+          value: "00000000-0000-0000-0001-000000000000"
         - name: USE_CAPI_BMH
+          value: "false"
+        - name: USE_CM
           value: "false"
 ---
 apiVersion: v1
