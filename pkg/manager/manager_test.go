@@ -52,44 +52,56 @@ const (
 	BCFailureFailed     = "FabricDeviceFailed"
 )
 
+const (
+	CaseDriverResourceCorrect = iota
+)
+
+const (
+	CaseDeviceCorrect = iota
+	CaseDeviceMinMaxNil
+)
+
 func init() {
 	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
 	slog.SetDefault(slog.New(handler))
 }
 
-func createTestDriverResources() map[string]*resourceslice.DriverResources {
+func createTestDriverResources(caseDriverResource int) map[string]*resourceslice.DriverResources {
 	ndr := make(map[string]*resourceslice.DriverResources)
 
-	ndr["test-driver-1"] = &resourceslice.DriverResources{
-		Pools: map[string]resourceslice.Pool{
-			"test-device-1-fabric1": {
-				Slices: []resourceslice.Slice{
-					{
-						Devices: []resourceapi.Device{
-							{
-								Name: "test-device-1-gpu1",
-								Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
-									"productName": {
-										StringValue: ptr.To("TEST DEVICE 1"),
+	switch caseDriverResource {
+	case CaseDriverResourceCorrect:
+		ndr["test-driver-1"] = &resourceslice.DriverResources{
+			Pools: map[string]resourceslice.Pool{
+				"test-device-1-fabric1": {
+					Slices: []resourceslice.Slice{
+						{
+							Devices: []resourceapi.Device{
+								{
+									Name: "test-device-1-gpu1",
+									Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
+										"productName": {
+											StringValue: ptr.To("TEST DEVICE 1"),
+										},
 									},
+									BindsToNode:              ptr.To(true),
+									BindingConditions:        []string{BCReady},
+									BindingFailureConditions: []string{BCFailureReschedule, BCFailureFailed},
 								},
-								BindsToNode:              ptr.To(true),
-								BindingConditions:        []string{BCReady},
-								BindingFailureConditions: []string{BCFailureReschedule, BCFailureFailed},
 							},
 						},
 					},
-				},
-				Generation: 1,
-				NodeSelector: &v1.NodeSelector{
-					NodeSelectorTerms: []v1.NodeSelectorTerm{
-						{
-							MatchExpressions: []v1.NodeSelectorRequirement{
-								{
-									Key:      "cohdi.com/fabric",
-									Operator: v1.NodeSelectorOpIn,
-									Values: []string{
-										"true",
+					Generation: 1,
+					NodeSelector: &v1.NodeSelector{
+						NodeSelectorTerms: []v1.NodeSelectorTerm{
+							{
+								MatchExpressions: []v1.NodeSelectorRequirement{
+									{
+										Key:      "cohdi.com/fabric",
+										Operator: v1.NodeSelectorOpIn,
+										Values: []string{
+											"true",
+										},
 									},
 								},
 							},
@@ -97,16 +109,16 @@ func createTestDriverResources() map[string]*resourceslice.DriverResources {
 					},
 				},
 			},
-		},
-	}
-	ndr["test-driver-2"] = &resourceslice.DriverResources{
-		Pools: make(map[string]resourceslice.Pool),
+		}
+		ndr["test-driver-2"] = &resourceslice.DriverResources{
+			Pools: make(map[string]resourceslice.Pool),
+		}
 	}
 	return ndr
 }
 
 func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *httptest.Server, ku.TestControllerShutdownFunc) {
-	ndr := createTestDriverResources()
+	ndr := createTestDriverResources(testSpec.CaseDriverResource)
 
 	server, certPem := client.CreateTLSServer(t)
 	server.StartTLS()
@@ -141,7 +153,7 @@ func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *ht
 		t.Fatalf("failed to build CDIClient: %v", err)
 	}
 
-	deviceInfos := config.CreateDeviceInfos(config.CaseDevInfoCorrect)
+	deviceInfos := config.CreateDeviceInfos(testSpec.CaseDeviceInfo)
 
 	return &CDIManager{
 		coreClient:           kubeclient,
@@ -174,7 +186,7 @@ func createResourceSliceCreateReactor() func(action k8stesting.Action) (handled 
 	}
 }
 
-func createTestMachines(availableDeviceCount int) []*machine {
+func createTestMachines(availableDeviceCount int, testSpec config.TestSpec) []*machine {
 	var machines []*machine
 	for i := 0; i < config.TestNodeCount; i++ {
 		nodeGroupUUID := fmt.Sprintf("%d0000000-0000-0000-0000-000000000000", (i/nodeGroupNum)+1)
@@ -183,64 +195,71 @@ func createTestMachines(availableDeviceCount int) []*machine {
 			fabricID:      ptr.To((i % fabricIdNum) + 1),
 			nodeGroupUUID: nodeGroupUUID,
 		}
-		machine.deviceList = createTestDeviceList(availableDeviceCount, nodeGroupUUID)
+		machine.deviceList = createTestDeviceList(availableDeviceCount, nodeGroupUUID, testSpec.CaseDevice)
 		machines = append(machines, machine)
 	}
 	return machines
 }
 
-func createTestDeviceList(availableNum int, nodeGroupUUID string) deviceList {
-	deviceList := deviceList{
-		"DEVICE 1": &device{
-			k8sDeviceName: "test-device-1",
-			driverName:    "test-driver-1",
-			draAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
+func createTestDeviceList(availableNum int, nodeGroupUUID string, caseDevice int) deviceList {
+	devList := make(deviceList)
+	switch caseDevice {
+	case CaseDeviceCorrect:
+		devList = deviceList{
+			"DEVICE 1": &device{
+				k8sDeviceName: "test-device-1",
+				driverName:    "test-driver-1",
+				draAttributes: map[string]string{
+					"productName": "TEST DEVICE 1",
+				},
+				availableDeviceCount: availableNum,
 			},
-			availableDeviceCount: availableNum,
-		},
-		"DEVICE 2": &device{
-			k8sDeviceName:        "test-device-2",
-			driverName:           "test-driver-1",
-			availableDeviceCount: availableNum,
-		},
-		"DEVICE 3": &device{
-			k8sDeviceName: "test-device-3",
-			driverName:    "test-driver-2",
-			draAttributes: map[string]string{
-				"productName": "TEST DEVICE 3",
+			"DEVICE 2": &device{
+				k8sDeviceName:        "test-device-2",
+				driverName:           "test-driver-1",
+				availableDeviceCount: availableNum,
 			},
-			availableDeviceCount: availableNum,
-		},
-	}
-	if nodeGroupUUID == "10000000-0000-0000-0000-000000000000" {
-		for deviceName := range deviceList {
-			deviceList[deviceName].minDeviceCount = ptr.To(1)
-			deviceList[deviceName].maxDeviceCount = ptr.To(3)
+			"DEVICE 3": &device{
+				k8sDeviceName: "test-device-3",
+				driverName:    "test-driver-2",
+				draAttributes: map[string]string{
+					"productName": "TEST DEVICE 3",
+				},
+				availableDeviceCount: availableNum,
+			},
 		}
-	}
-	if nodeGroupUUID == "20000000-0000-0000-0000-000000000000" {
-		for deviceName := range deviceList {
-			deviceList[deviceName].minDeviceCount = ptr.To(2)
-			deviceList[deviceName].maxDeviceCount = ptr.To(6)
+		if nodeGroupUUID == "10000000-0000-0000-0000-000000000000" {
+			for deviceName := range devList {
+				devList[deviceName].minDeviceCount = ptr.To(1)
+				devList[deviceName].maxDeviceCount = ptr.To(3)
+			}
 		}
-	}
-	if nodeGroupUUID == "30000000-0000-0000-0000-000000000000" {
-		for deviceName := range deviceList {
-			deviceList[deviceName].minDeviceCount = ptr.To(3)
-			deviceList[deviceName].maxDeviceCount = ptr.To(12)
+		if nodeGroupUUID == "20000000-0000-0000-0000-000000000000" {
+			for deviceName := range devList {
+				devList[deviceName].minDeviceCount = ptr.To(2)
+				devList[deviceName].maxDeviceCount = ptr.To(6)
+			}
 		}
-	}
+		if nodeGroupUUID == "30000000-0000-0000-0000-000000000000" {
+			for deviceName := range devList {
+				devList[deviceName].minDeviceCount = ptr.To(3)
+				devList[deviceName].maxDeviceCount = ptr.To(12)
+			}
+		}
 	// Add a device to check if it is no problem that min/max device count is nil
-	deviceList["DEVICE 4"] = &device{
-		k8sDeviceName: "test-device-4",
-		driverName:    "test-driver-2",
-		draAttributes: map[string]string{
-			"productName": "TEST DEVICE 4",
-		},
-		availableDeviceCount: availableNum,
+	case CaseDeviceMinMaxNil:
+		devList = deviceList{
+			"DEVICE 1": &device{
+				k8sDeviceName: "test-device-1",
+				driverName:    "test-driver-1",
+				draAttributes: map[string]string{
+					"productName": "TEST DEVICE 1",
+				},
+				availableDeviceCount: availableNum,
+			},
+		}
 	}
-	return deviceList
+	return devList
 }
 
 func createTestControllers(t testing.TB, kubeClitent kubernetes.Interface) map[string]*resourceslice.Controller {
@@ -273,15 +292,9 @@ func createTestControllers(t testing.TB, kubeClitent kubernetes.Interface) map[s
 }
 
 func TestCDIManagerStartResourceSliceController(t *testing.T) {
-	testSpec := config.TestSpec{
-		UseCapiBmh: true,
-		DRAenabled: true,
-	}
-	m, _, stop := createTestManager(t, testSpec)
-	defer stop()
-
 	testCases := []struct {
 		name                            string
+		caseDriverResource              int
 		expectedDriverName              string
 		expectedPoolName                string
 		expectedDeviceName              string
@@ -292,6 +305,7 @@ func TestCDIManagerStartResourceSliceController(t *testing.T) {
 	}{
 		{
 			name:                            "When the controller starts successfully if DRA is enabled",
+			caseDriverResource:              CaseDriverResourceCorrect,
 			expectedDriverName:              "test-driver-1",
 			expectedPoolName:                "test-device-1-fabric1",
 			expectedDeviceName:              "test-device-1-gpu1",
@@ -304,6 +318,14 @@ func TestCDIManagerStartResourceSliceController(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			testSpec := config.TestSpec{
+				UseCapiBmh:         true,
+				DRAenabled:         true,
+				CaseDriverResource: tc.caseDriverResource,
+			}
+			m, _, stop := createTestManager(t, testSpec)
+			defer stop()
+
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			cs, err := m.startResourceSliceController(ctx)
@@ -360,10 +382,10 @@ func TestCDIManagerStartResourceSliceController(t *testing.T) {
 					}
 				}
 			}
-			if sliceNumPerPool[tc.expectedPoolName] < 1 {
+			if len(tc.expectedPoolName) > 0 && sliceNumPerPool[tc.expectedPoolName] < 1 {
 				t.Errorf("not found expected ResourceSlice in pool, expected pool %s", tc.expectedPoolName)
 			}
-			if !deviceFound {
+			if len(tc.expectedDeviceName) > 0 && !deviceFound {
 				t.Errorf("not found expected device in ResourceSlice, expected device %s", tc.expectedDeviceName)
 			}
 		})
@@ -376,7 +398,9 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 		useCapiBmh               bool
 		useCM                    bool
 		nodeName                 string
+		caseDevInfo              int
 		expectedErr              bool
+		expectedErrMsg           string
 		expectedPoolName         string
 		expectedDriverName       string
 		expectedDeviceName       string
@@ -420,9 +444,10 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
-				UseCapiBmh: tc.useCapiBmh,
-				UseCM:      tc.useCM,
-				DRAenabled: true,
+				UseCapiBmh:     tc.useCapiBmh,
+				UseCM:          tc.useCM,
+				DRAenabled:     true,
+				CaseDeviceInfo: tc.caseDevInfo,
 			}
 			m, server, stop := createTestManager(t, testSpec)
 			defer server.Close()
@@ -435,11 +460,14 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 				if err == nil {
 					t.Error("expected error, but got none")
 				}
+				if len(tc.expectedErrMsg) > 0 && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
-				time.Sleep(time.Second)
+				time.Sleep(3 * time.Second)
 				resourceslices, err := m.coreClient.ResourceV1().ResourceSlices().List(context.Background(), metav1.ListOptions{})
 				if err != nil {
 					t.Errorf("unexpected error in kube client List")
@@ -844,14 +872,16 @@ func TestCDIManagerManageCDIResourceSlices(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
-				UseCapiBmh: false,
-				DRAenabled: true,
+				UseCapiBmh:         false,
+				DRAenabled:         true,
+				CaseDriverResource: CaseDriverResourceCorrect,
+				CaseDevice:         CaseDeviceCorrect,
 			}
 			m, _, stop := createTestManager(t, testSpec)
 			defer stop()
 			controlles := createTestControllers(t, m.coreClient)
 			for i, availableDevice := range tc.availableDeviceCount {
-				machines := createTestMachines(availableDevice)
+				machines := createTestMachines(availableDevice, testSpec)
 				m.manageCDIResourceSlices(machines, controlles)
 				time.Sleep(time.Second)
 				resourceslices, err := m.coreClient.ResourceV1().ResourceSlices().List(context.Background(), metav1.ListOptions{})
@@ -959,7 +989,7 @@ func TestCDIManagerUpdatePool(t *testing.T) {
 			defer stop()
 			for i, availableNum := range tc.availableDeviceCount {
 				nodeGroup := "10000000-0000-0000-0000-000000000000"
-				deviceList := createTestDeviceList(availableNum, nodeGroup)
+				deviceList := createTestDeviceList(availableNum, nodeGroup, testSpec.CaseDevice)
 				device := deviceList["DEVICE 1"]
 				poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(tc.fabricID)
 				var updated bool
@@ -1068,6 +1098,7 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 		name              string
 		nodeName          string
 		deviceName        string
+		caseDevice        int
 		expectedFabric    string
 		expectedMinDevice string
 		expectedMaxDevice string
@@ -1077,6 +1108,7 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 			name:              "When correctly nodes labeled",
 			nodeName:          "test-node-0",
 			deviceName:        "test-device-1",
+			caseDevice:        CaseDeviceCorrect,
 			expectedFabric:    "1",
 			expectedMinDevice: "1",
 			expectedMaxDevice: "3",
@@ -1085,7 +1117,8 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 		{
 			name:              "When device min and max is nil",
 			nodeName:          "test-node-0",
-			deviceName:        "test-device-4",
+			deviceName:        "test-device-1",
+			caseDevice:        CaseDeviceMinMaxNil,
 			expectedFabric:    "1",
 			expectedMaxDevice: "",
 			expectedMinDevice: "",
@@ -1098,11 +1131,12 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 				UseCapiBmh: false,
 				UseCM:      true,
 				DRAenabled: true,
+				CaseDevice: tc.caseDevice,
 			}
 			m, _, stop := createTestManager(t, testSpec)
 			defer stop()
 			availableDevice := 3
-			machines := createTestMachines(availableDevice)
+			machines := createTestMachines(availableDevice, testSpec)
 
 			err := m.manageCDINodeLabel(context.Background(), machines)
 
@@ -1137,16 +1171,16 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 }
 
 func TestInitDrvierResources(t *testing.T) {
-	deviceInfos := config.CreateDeviceInfos(config.CaseDevInfoCorrect)
-
 	testCases := []struct {
 		name                string
+		caseDevInfo         int
 		expectedDriverNames []string
 		expectedDRLength    int
 		expectedDR          *resourceslice.DriverResources
 	}{
 		{
 			name:                "When correct DeviceInfo is provided and DriverResource is initialized as expected",
+			caseDevInfo:         config.CaseDevInfoCorrect,
 			expectedDriverNames: []string{"test-driver-1", "test-driver-2"},
 			expectedDRLength:    2,
 			expectedDR: &resourceslice.DriverResources{
@@ -1154,9 +1188,9 @@ func TestInitDrvierResources(t *testing.T) {
 			},
 		},
 	}
-
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			deviceInfos := config.CreateDeviceInfos(tc.caseDevInfo)
 			ndr := initDriverResources(deviceInfos)
 			if len(ndr) != tc.expectedDRLength {
 				t.Errorf("not expected DriverResoures length: %d", len(ndr))

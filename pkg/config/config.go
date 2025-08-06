@@ -43,19 +43,23 @@ type Config struct {
 	UseCM        bool
 }
 
+type DeviceInfoList struct {
+	DeviceInfos []DeviceInfo `yaml:"device-info" validate:"unique=Index,unique=CDIModelName,unique=K8sDeviceName,dive"`
+}
+
 type DeviceInfo struct {
 	// Index of device
 	Index int `yaml:"index" validate:"gte=0,lte=10000"`
 	// Name of a device model registered to ResourceManager in CDI
-	CDIModelName string `yaml:"cdi-model-name" validate:"max=1000"`
+	CDIModelName string `yaml:"cdi-model-name" validate:"required,max=1000"`
 	// Attributes of ResourceSlice that will be exposed. It corresponds to vendor's ResourceSlice
-	DRAAttributes map[string]string `yaml:"dra-attributes" validate:"max=100,dive,keys,max=1000,endkeys,max=1000"`
+	DRAAttributes map[string]string `yaml:"dra-attributes" validate:"max=100,has-productName,dive,keys,max=1000,endkeys,max=1000"`
 	// Name of vendor DRA driver for a device
-	DriverName string `yaml:"driver-name" validate:"max=1000"`
+	DriverName string `yaml:"driver-name" validate:"required,max=1000"`
 	// DRA pool name or label name affixed to a node. Basic format is "<vendor>-<model>"
-	K8sDeviceName string `yaml:"k8s-device-name" validate:"max=50,is-dns"`
+	K8sDeviceName string `yaml:"k8s-device-name" validate:"required,max=50,is-dns"`
 	// List of device indexes unable to coexist in the same node
-	CanNotCoexistWith []int `yaml:"cannot-coexists-with" validate:"max=100"`
+	CanNotCoexistWith []int `yaml:"cannot-coexists-with" validate:"required,max=100"`
 }
 
 func GetDeviceInfos(cm *corev1.ConfigMap) ([]DeviceInfo, error) {
@@ -74,13 +78,14 @@ func GetDeviceInfos(cm *corev1.ConfigMap) ([]DeviceInfo, error) {
 			slog.Error("Failed yaml unmarshal", "error", err)
 			return nil, err
 		}
+		var devInfoList DeviceInfoList
+		devInfoList.DeviceInfos = devInfos
 		// Validate the factor in device-info
 		validate := validator.New()
 		validate.RegisterValidation("is-dns", ValidateDNSLabel)
-		for _, devInfo := range devInfos {
-			if err := validate.Struct(devInfo); err != nil {
-				return nil, err
-			}
+		validate.RegisterValidation("has-productName", HasProductName)
+		if err := validate.Struct(devInfoList); err != nil {
+			return nil, err
 		}
 		return devInfos, nil
 	}
@@ -97,6 +102,16 @@ func ValidateDNSLabel(fl validator.FieldLevel) bool {
 	} else {
 		return true
 	}
+}
+
+func HasProductName(fl validator.FieldLevel) bool {
+	value, ok := fl.Field().Interface().(map[string]string)
+	if !ok {
+		slog.Error("failed to convert dra-attributes to map[string]string")
+		return false
+	}
+	_, exists := value["productName"]
+	return exists
 }
 
 func GetLabelPrefix(cm *corev1.ConfigMap) (string, error) {
