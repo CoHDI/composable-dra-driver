@@ -194,6 +194,42 @@ func TestGetDeviceInfos(t *testing.T) {
 			expectedErr:    true,
 			expectedErrMsg: "Error:Field validation for 'DriverName' failed on the 'max' tag",
 		},
+		{
+			name:           "When driver-name is empty",
+			cm:             cms[CaseDevInfoEmptyDriver],
+			expectedErr:    true,
+			expectedErrMsg: "Error:Field validation for 'DriverName' failed on the 'required' tag",
+		},
+		{
+			name:           "When cdi-model-name is empty",
+			cm:             cms[CaseDevInfoEmptyModel],
+			expectedErr:    true,
+			expectedErrMsg: "Error:Field validation for 'CDIModelName' failed on the 'required' tag",
+		},
+		{
+			name:           "When dra-attributes are empty",
+			cm:             cms[CaseDevInfoEmptyAttr],
+			expectedErr:    true,
+			expectedErrMsg: "Error:Field validation for 'DRAAttributes' failed on the 'has-productName' tag",
+		},
+		{
+			name:           "When index is duplicated",
+			cm:             cms[CaseDevInfoDuplicateIndex],
+			expectedErr:    true,
+			expectedErrMsg: "Error:Field validation for 'DeviceInfos' failed on the 'unique' tag",
+		},
+		{
+			name:           "When cdi-model-name is duplicated",
+			cm:             cms[CaseDevInfoDuplicateModel],
+			expectedErr:    true,
+			expectedErrMsg: "Error:Field validation for 'DeviceInfos' failed on the 'unique' tag",
+		},
+		{
+			name:           "When k8s-device-name is duplicated",
+			cm:             cms[CaseDevInfoDuplicateDevice],
+			expectedErr:    true,
+			expectedErrMsg: "Error:Field validation for 'DeviceInfos' failed on the 'unique' tag",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -234,7 +270,7 @@ func TestGetDeviceInfos(t *testing.T) {
 							t.Errorf("unexpected dra-attributes length, expected length %d but got %d", tc.expectedAttributeFactors, len(devInfo.DRAAttributes))
 						}
 						for key, value := range devInfo.DRAAttributes {
-							if tc.expectedAttributeKeyLength > 0 {
+							if tc.expectedAttributeKeyLength > 0 && key != "productName" {
 								if len(key) != tc.expectedAttributeKeyLength {
 									t.Errorf("unexpected dra-attributes' key length, expected length %d but got %d", tc.expectedAttributeKeyLength, len(key))
 								}

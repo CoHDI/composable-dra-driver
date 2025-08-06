@@ -63,6 +63,12 @@ const (
 	CaseDevInfoAttrValue1001B
 	CaseDevInfoDriver1000B
 	CaseDevInfoDriver1001B
+	CaseDevInfoEmptyDriver
+	CaseDevInfoEmptyModel
+	CaseDevInfoEmptyAttr
+	CaseDevInfoDuplicateIndex
+	CaseDevInfoDuplicateModel
+	CaseDevInfoDuplicateDevice
 
 	CaseLabelPrefix100B
 	CaseLabelPrefix101B
@@ -82,9 +88,12 @@ type TestConfig struct {
 }
 
 type TestSpec struct {
-	UseCapiBmh bool
-	UseCM      bool
-	DRAenabled bool
+	UseCapiBmh         bool
+	UseCM              bool
+	DRAenabled         bool
+	CaseDriverResource int
+	CaseDeviceInfo     int
+	CaseDevice         int
 }
 
 func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
@@ -130,6 +139,9 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			CDIModelName:  "DEVICE 1",
 			DriverName:    "test-driver-1",
 			K8sDeviceName: "test-device-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
 		}
 		devInfos := []DeviceInfo{devInfo}
 		return devInfos
@@ -139,6 +151,9 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			CDIModelName:  "DEVICE1",
 			DriverName:    "test-driver-1",
 			K8sDeviceName: "test-device-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
 		}
 		devInfos := []DeviceInfo{devInfo}
 		return devInfos
@@ -148,6 +163,9 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			CDIModelName:  "DEVICE 1",
 			DriverName:    "test-driver-1",
 			K8sDeviceName: "test-device-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
 		}
 		devInfos := []DeviceInfo{devInfo}
 		return devInfos
@@ -157,6 +175,9 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			CDIModelName:  "DEVICE 1",
 			DriverName:    "test-driver-1",
 			K8sDeviceName: "test-device-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
 		}
 		devInfos := []DeviceInfo{devInfo}
 		return devInfos
@@ -166,6 +187,9 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			CDIModelName:  RandomString(1000),
 			DriverName:    "test-driver-1",
 			K8sDeviceName: "test-device-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
 		}
 		devInfos := []DeviceInfo{devInfo}
 		return devInfos
@@ -175,6 +199,9 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			CDIModelName:  RandomString(1001),
 			DriverName:    "test-driver-1",
 			K8sDeviceName: "test-device-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
 		}
 		devInfos := []DeviceInfo{devInfo}
 		return devInfos
@@ -184,6 +211,9 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			CDIModelName:  "DEVICE 1",
 			DriverName:    "test-driver-1",
 			K8sDeviceName: RandomString(50),
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
 		}
 		devInfos := []DeviceInfo{devInfo}
 		return devInfos
@@ -193,6 +223,9 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			CDIModelName:  "DEVICE 1",
 			DriverName:    "test-driver-1",
 			K8sDeviceName: RandomString(51),
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
 		}
 		devInfos := []DeviceInfo{devInfo}
 		return devInfos
@@ -202,6 +235,9 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			CDIModelName:  "DEVICE 1",
 			DriverName:    "test-driver-1",
 			K8sDeviceName: "TEST-DEVICE-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
 		}
 		devInfos := []DeviceInfo{devInfo}
 		return devInfos
@@ -211,6 +247,9 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			CDIModelName:  "DEVICE 1",
 			DriverName:    "test-driver-1",
 			K8sDeviceName: "test-device-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
 		}
 		for i := 2; i < 102; i++ {
 			devInfo.CanNotCoexistWith = append(devInfo.CanNotCoexistWith, i)
@@ -223,6 +262,9 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			CDIModelName:  "DEVICE 1",
 			DriverName:    "test-driver-1",
 			K8sDeviceName: "test-device-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
 		}
 		for i := 2; i < 103; i++ {
 			devInfo.CanNotCoexistWith = append(devInfo.CanNotCoexistWith, i)
@@ -235,9 +277,11 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			CDIModelName:  "DEVICE 1",
 			DriverName:    "test-driver-1",
 			K8sDeviceName: "test-device-1",
-			DRAAttributes: make(map[string]string),
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
 		}
-		for i := 0; i < 100; i++ {
+		for i := 0; i < 99; i++ {
 			devInfo.DRAAttributes[strconv.Itoa(i)] = "attribute-" + strconv.Itoa(i)
 		}
 		deviInfos := []DeviceInfo{devInfo}
@@ -248,9 +292,11 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			CDIModelName:  "DEVICE 1",
 			DriverName:    "test-driver-1",
 			K8sDeviceName: "test-device-1",
-			DRAAttributes: make(map[string]string),
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
 		}
-		for i := 0; i < 101; i++ {
+		for i := 0; i < 100; i++ {
 			devInfo.DRAAttributes[strconv.Itoa(i)] = "attribute-" + strconv.Itoa(i)
 		}
 		deviInfos := []DeviceInfo{devInfo}
@@ -262,7 +308,8 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			DriverName:    "test-driver-1",
 			K8sDeviceName: "test-device-1",
 			DRAAttributes: map[string]string{
-				RandomString(1000): "TEST DEVICE 1",
+				"productName":      "TEST DEVICE 1",
+				RandomString(1000): "key length test",
 			},
 		}
 		devInfos := []DeviceInfo{devInfo}
@@ -274,7 +321,8 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			DriverName:    "test-driver-1",
 			K8sDeviceName: "test-device-1",
 			DRAAttributes: map[string]string{
-				RandomString(1001): "TEST DEVICE 1",
+				"productName":      "TEST DEVICE 1",
+				RandomString(1001): "key length test",
 			},
 		}
 		devInfos := []DeviceInfo{devInfo}
@@ -309,6 +357,9 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			CDIModelName:  "DEVICE 1",
 			DriverName:    RandomString(1000),
 			K8sDeviceName: "test-device-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
 		}
 		devInfos := []DeviceInfo{devInfo}
 		return devInfos
@@ -318,8 +369,108 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			CDIModelName:  "DEVICE 1",
 			DriverName:    RandomString(1001),
 			K8sDeviceName: "test-device-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
 		}
 		devInfos := []DeviceInfo{devInfo}
+		return devInfos
+	case CaseDevInfoEmptyDriver:
+		devInfo := DeviceInfo{
+			Index:         1,
+			CDIModelName:  "DEVICE 1",
+			DriverName:    "",
+			K8sDeviceName: "test-device-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
+		}
+		devInfos := []DeviceInfo{devInfo}
+		return devInfos
+	case CaseDevInfoEmptyModel:
+		devInfo := DeviceInfo{
+			Index:         1,
+			CDIModelName:  "",
+			DriverName:    "test-driver-1",
+			K8sDeviceName: "test-device-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
+		}
+		devInfos := []DeviceInfo{devInfo}
+		return devInfos
+	case CaseDevInfoEmptyAttr:
+		devInfo := DeviceInfo{
+			Index:         1,
+			CDIModelName:  "TEST DEVICE 1",
+			DriverName:    "test-driver-1",
+			K8sDeviceName: "test-device-1",
+			// draAttributes is empty
+		}
+		devInfos := []DeviceInfo{devInfo}
+		return devInfos
+	case CaseDevInfoDuplicateIndex:
+		devInfo1 := DeviceInfo{
+			Index:         1,
+			CDIModelName:  "DEVICE 1",
+			DriverName:    "test-driver-1",
+			K8sDeviceName: "test-device-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
+		}
+		devInfo2 := DeviceInfo{
+			Index:         1,
+			CDIModelName:  "DEVICE 2",
+			DriverName:    "test-driver-2",
+			K8sDeviceName: "test-device-2",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 2",
+			},
+		}
+		devInfos := []DeviceInfo{devInfo1, devInfo2}
+		return devInfos
+	case CaseDevInfoDuplicateModel:
+		devInfo1 := DeviceInfo{
+			Index:         1,
+			CDIModelName:  "DEVICE 1",
+			DriverName:    "test-driver-1",
+			K8sDeviceName: "test-device-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
+		}
+		devInfo2 := DeviceInfo{
+			Index:         2,
+			CDIModelName:  "DEVICE 1",
+			DriverName:    "test-driver-2",
+			K8sDeviceName: "test-device-2",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 2",
+			},
+		}
+		devInfos := []DeviceInfo{devInfo1, devInfo2}
+		return devInfos
+	case CaseDevInfoDuplicateDevice:
+		devInfo1 := DeviceInfo{
+			Index:         1,
+			CDIModelName:  "DEVICE 1",
+			DriverName:    "test-driver-1",
+			K8sDeviceName: "test-device-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
+		}
+		devInfo2 := DeviceInfo{
+			Index:         2,
+			CDIModelName:  "DEVICE 2",
+			DriverName:    "test-driver-1",
+			K8sDeviceName: "test-device-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 2",
+			},
+		}
+		devInfos := []DeviceInfo{devInfo1, devInfo2}
 		return devInfos
 	default:
 		return nil
@@ -385,7 +536,7 @@ func CreateConfigMap() ([]*corev1.ConfigMap, error) {
 
 	cms := []*corev1.ConfigMap{cm0, cm1, cm2}
 
-	for devInfoCase := CaseDevInfoIndexMinus; devInfoCase <= CaseDevInfoDriver1001B; devInfoCase++ {
+	for devInfoCase := CaseDevInfoIndexMinus; devInfoCase <= CaseDevInfoDuplicateDevice; devInfoCase++ {
 		deviceInfos := CreateDeviceInfos(devInfoCase)
 		data, err := yaml.Marshal(deviceInfos)
 		if err != nil {
