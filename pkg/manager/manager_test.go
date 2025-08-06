@@ -1131,6 +1131,7 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 				UseCapiBmh: false,
 				UseCM:      true,
 				DRAenabled: true,
+				CaseDevice: tc.caseDevice,
 			}
 			m, _, stop := createTestManager(t, testSpec)
 			defer stop()

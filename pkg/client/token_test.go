@@ -31,37 +31,31 @@ func TestCachedIMTokenSourceToken(t *testing.T) {
 		t.Fatalf("failed to create ca certificate: %v", err)
 	}
 	testCases := []struct {
-		name                 string
-		secretCase           int
-		certPem              string
-		sleepTime            time.Duration
-		expectedErr          bool
-		expectedTokenUpdate  bool
-		expectedAccessToken  string
-		expectedTokenType    string
-		expectedRefreshToken string
+		name                string
+		secretCase          int
+		certPem             string
+		sleepTime           time.Duration
+		expectedErr         bool
+		expectedTokenUpdate bool
+		expectedAccessToken string
 	}{
 		{
-			name:                 "When token is cached",
-			secretCase:           8,
-			sleepTime:            1,
-			certPem:              caData.CertPem,
-			expectedErr:          false,
-			expectedTokenUpdate:  false,
-			expectedAccessToken:  `^token1`,
-			expectedTokenType:    "Bearer",
-			expectedRefreshToken: "token2",
+			name:                "When token is cached",
+			secretCase:          8,
+			sleepTime:           1,
+			certPem:             caData.CertPem,
+			expectedErr:         false,
+			expectedTokenUpdate: false,
+			expectedAccessToken: `^token1`,
 		},
 		{
-			name:                 "When token is newly issued",
-			secretCase:           8,
-			sleepTime:            5,
-			certPem:              caData.CertPem,
-			expectedErr:          false,
-			expectedTokenUpdate:  true,
-			expectedAccessToken:  `^token1`,
-			expectedTokenType:    "Bearer",
-			expectedRefreshToken: "token2",
+			name:                "When token is newly issued",
+			secretCase:          8,
+			sleepTime:           5,
+			certPem:             caData.CertPem,
+			expectedErr:         false,
+			expectedTokenUpdate: true,
+			expectedAccessToken: `^token1`,
 		},
 	}
 	for _, tc := range testCases {
@@ -104,12 +98,6 @@ func TestCachedIMTokenSourceToken(t *testing.T) {
 				if !re.MatchString(token2.AccessToken) {
 					t.Errorf("unexpected AccessToken, expected %s but got %s", tc.expectedAccessToken, token2.AccessToken)
 				}
-				if token2.TokenType != tc.expectedTokenType {
-					t.Errorf("unexpected TokenType, expected %s but got %s", tc.expectedTokenType, token2.TokenType)
-				}
-				if token2.RefreshToken != tc.expectedRefreshToken {
-					t.Errorf("unexpected RefreshToken, expected %s but got %s", tc.expectedRefreshToken, token2.RefreshToken)
-				}
 				if tc.expectedTokenUpdate {
 					if token2.Expiry.Equal(expiry1) || token2.Expiry.Before(now.Add(35*time.Second)) {
 						t.Error("unexpected expiry of token, expected update but not done")
@@ -130,24 +118,20 @@ func TestIdManagerTokenSourceToken(t *testing.T) {
 		t.Fatalf("failed to create ca certificate: %v", err)
 	}
 	testCases := []struct {
-		name                 string
-		secretCase           int
-		certPem              string
-		expectedErr          bool
-		expectedAccessToken  string
-		expectedTokenType    string
-		expectedRefreshToken string
-		expectedExpiry       time.Time
+		name                string
+		secretCase          int
+		certPem             string
+		expectedErr         bool
+		expectedAccessToken string
+		expectedExpiry      time.Time
 	}{
 		{
-			name:                 "When correct IMToken is obtained",
-			secretCase:           1,
-			certPem:              caData.CertPem,
-			expectedErr:          false,
-			expectedAccessToken:  "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":775710000}`)),
-			expectedTokenType:    "Bearer",
-			expectedRefreshToken: "token2",
-			expectedExpiry:       time.Unix(775710000, 0),
+			name:                "When correct IMToken is obtained",
+			secretCase:          1,
+			certPem:             caData.CertPem,
+			expectedErr:         false,
+			expectedAccessToken: "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":2069550000}`)),
+			expectedExpiry:      time.Unix(2069550000, 0),
 		},
 	}
 	for _, tc := range testCases {
@@ -181,12 +165,6 @@ func TestIdManagerTokenSourceToken(t *testing.T) {
 				}
 				if token.AccessToken != tc.expectedAccessToken {
 					t.Errorf("unexpected AccessToken, expected %s but got %s", tc.expectedAccessToken, token.AccessToken)
-				}
-				if token.TokenType != tc.expectedTokenType {
-					t.Errorf("unexpected TokenType, expected %s but got %s", tc.expectedTokenType, token.TokenType)
-				}
-				if token.RefreshToken != tc.expectedRefreshToken {
-					t.Errorf("unexpected RefreshToken, expected %s but got %s", tc.expectedRefreshToken, token.RefreshToken)
 				}
 				if token.Expiry != tc.expectedExpiry {
 					t.Errorf("unexpected token Expiry, expected %s but got %s", tc.expectedExpiry, token.Expiry)

@@ -407,8 +407,9 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 			}
 			if r.URL.Path == "/id_manager/realms/Time_Test/protocol/openid-connect/token" {
 				expiry := time.Now().Add(35 * time.Second)
-				testIMToken.AccessToken = "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"exp":%d}`, expiry.Unix())))
-				response, _ := json.Marshal(testIMToken)
+				timeTestIMToken := testIMToken
+				timeTestIMToken.AccessToken = "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"exp":%d}`, expiry.Unix())))
+				response, _ := json.Marshal(timeTestIMToken)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(response))
