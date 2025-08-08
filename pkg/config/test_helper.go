@@ -88,12 +88,13 @@ type TestConfig struct {
 }
 
 type TestSpec struct {
-	UseCapiBmh         bool
-	UseCM              bool
-	DRAenabled         bool
-	CaseDriverResource int
-	CaseDeviceInfo     int
-	CaseDevice         int
+	UseCapiBmh           bool
+	UseCM                bool
+	DRAenabled           bool
+	AvailableDeviceCount int
+	CaseDriverResource   int
+	CaseDeviceInfo       int
+	CaseDevice           int
 }
 
 func CreateDeviceInfos(devInfoCase int) []DeviceInfo {

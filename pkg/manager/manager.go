@@ -586,13 +586,19 @@ func (m *CDIManager) manageCDINodeLabel(ctx context.Context, machines []*machine
 			slog.Error("failed to get node", "nodeName", machine.nodeName)
 			return err
 		}
-		// Label for fabric
 		fabricLabelKey := m.labelPrefix + "/" + "fabric"
 		if node != nil {
-			node.Labels[fabricLabelKey] = strconv.Itoa(*machine.fabricID)
-			slog.Debug("set labels for fabric", "nodeName", machine.nodeName, "label", fabricLabelKey+"="+node.Labels[fabricLabelKey])
+			// Label for fabric
+			if machine.fabricID != nil {
+				fabricID := strconv.Itoa(*machine.fabricID)
+				if node.Labels[fabricLabelKey] != fabricID {
+					node.Labels[fabricLabelKey] = fabricID
+					slog.Info("set labels for fabric", "nodeName", machine.nodeName, "label", fabricLabelKey+"="+node.Labels[fabricLabelKey])
+				}
+			}
+
+			// Label for the min and max number of devices
 			if m.cdiOptions.useCM {
-				// Label for the min and max number of devices
 				for _, device := range machine.deviceList {
 					maxLabelKey := m.labelPrefix + "/" + device.k8sDeviceName + "-size-max"
 					if device.maxDeviceCount != nil {
