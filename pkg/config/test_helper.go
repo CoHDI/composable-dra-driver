@@ -84,7 +84,6 @@ type TestConfig struct {
 	Secret     *corev1.Secret
 	Nodes      []*corev1.Node
 	BMHs       []*unstructured.Unstructured
-	Machines   []*unstructured.Unstructured
 }
 
 type TestSpec struct {

@@ -42,9 +42,6 @@ import (
 const (
 	nodeProviderIDIndex       string        = "nodeProviderIDIndex"
 	bmhProviderIDIndex        string        = "bmhProviderIDIndex"
-	MachineAPIGroup           string        = "machine.openshift.io"
-	MachineAPIVersion         string        = "v1beta1"
-	MachineResourceName       string        = "machines"
 	Metal3APIGroup            string        = "metal3.io"
 	Metal3APIVersion          string        = "v1alpha1"
 	BareMetalHostResourceName string        = "baremetalhosts"
@@ -56,22 +53,15 @@ const (
 
 type normalizedProviderID string
 
-type KubeClientSets struct {
-	CoreClient    kube_client.Interface
-	MachineClient dynamic.Interface
-}
-
 type KubeControllers struct {
-	coreInformerFactory    kubeinformers.SharedInformerFactory
-	machineInformerFactory dynamicinformer.DynamicSharedInformerFactory
-	nodeInformer           informerscorev1.NodeInformer
-	configMapInformer      cache.SharedIndexInformer
-	secretInformer         cache.SharedIndexInformer
-	machineInformer        kubeinformers.GenericInformer
-	machineAvailable       bool
-	bmhInformer            kubeinformers.GenericInformer
-	bmhAvailable           bool
-	stopChannel            <-chan struct{}
+	coreInformerFactory kubeinformers.SharedInformerFactory
+	bmhInformerFactory  dynamicinformer.DynamicSharedInformerFactory
+	nodeInformer        informerscorev1.NodeInformer
+	configMapInformer   cache.SharedIndexInformer
+	secretInformer      cache.SharedIndexInformer
+	bmhInformer         kubeinformers.GenericInformer
+	bmhAvailable        bool
+	stopChannel         <-chan struct{}
 }
 
 func NewClientConfig() (*rest.Config, error) {
@@ -93,9 +83,9 @@ func NewClientConfig() (*rest.Config, error) {
 	return config, nil
 }
 
-func CreateKubeControllers(coreClient kube_client.Interface, machineClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface, useCapiBmh bool, stopChannel <-chan struct{}) (*KubeControllers, error) {
+func CreateKubeControllers(coreClient kube_client.Interface, bmhClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface, useCapiBmh bool, stopChannel <-chan struct{}) (*KubeControllers, error) {
 	coreInformerFactory := kubeinformers.NewSharedInformerFactoryWithOptions(coreClient, 0, kubeinformers.WithNamespace("composable-dra"))
-	machineInformerFactory := dynamicinformer.NewDynamicSharedInformerFactory(machineClient, 0)
+	bmhInformerFactory := dynamicinformer.NewDynamicSharedInformerFactory(bmhClient, 0)
 
 	configMapInformer := coreInformerFactory.Core().V1().ConfigMaps().Informer()
 	secretInformer := coreInformerFactory.Core().V1().Secrets().Informer()
@@ -107,26 +97,10 @@ func CreateKubeControllers(coreClient kube_client.Interface, machineClient dynam
 		return nil, err
 	}
 
-	var machineInformer kubeinformers.GenericInformer
 	var bmhInformer kubeinformers.GenericInformer
-	var machineAvailable bool
 	var bmhAvailable bool
 
 	if useCapiBmh {
-		machineAvailable, err := groupVersionHasResource(discoveryClient,
-			fmt.Sprintf("%s/%s", MachineAPIGroup, MachineAPIVersion), MachineResourceName)
-		if err != nil {
-			return nil, err
-		}
-		if machineAvailable {
-			gvrMachine := schema.GroupVersionResource{
-				Group:    MachineAPIGroup,
-				Version:  MachineAPIVersion,
-				Resource: MachineResourceName,
-			}
-			machineInformer = machineInformerFactory.ForResource(gvrMachine)
-		}
-
 		bmhAvailable, err := groupVersionHasResource(discoveryClient,
 			fmt.Sprintf("%s/%s", Metal3APIGroup, Metal3APIVersion), BareMetalHostResourceName)
 		if err != nil {
@@ -138,7 +112,7 @@ func CreateKubeControllers(coreClient kube_client.Interface, machineClient dynam
 				Version:  Metal3APIVersion,
 				Resource: BareMetalHostResourceName,
 			}
-			bmhInformer = machineInformerFactory.ForResource(gvrBMH)
+			bmhInformer = bmhInformerFactory.ForResource(gvrBMH)
 			if err := bmhInformer.Informer().GetIndexer().AddIndexers(cache.Indexers{
 				bmhProviderIDIndex: indexBMHByProviderID,
 			}); err != nil {
@@ -149,16 +123,14 @@ func CreateKubeControllers(coreClient kube_client.Interface, machineClient dynam
 	}
 
 	return &KubeControllers{
-		coreInformerFactory:    coreInformerFactory,
-		machineInformerFactory: machineInformerFactory,
-		nodeInformer:           nodeInformer,
-		configMapInformer:      configMapInformer,
-		secretInformer:         secretInformer,
-		machineInformer:        machineInformer,
-		machineAvailable:       machineAvailable,
-		bmhInformer:            bmhInformer,
-		bmhAvailable:           bmhAvailable,
-		stopChannel:            stopChannel,
+		coreInformerFactory: coreInformerFactory,
+		bmhInformerFactory:  bmhInformerFactory,
+		nodeInformer:        nodeInformer,
+		configMapInformer:   configMapInformer,
+		secretInformer:      secretInformer,
+		bmhInformer:         bmhInformer,
+		bmhAvailable:        bmhAvailable,
+		stopChannel:         stopChannel,
 	}, nil
 }
 
@@ -220,15 +192,12 @@ func IsDRAEnabled(discoveryClient discovery.DiscoveryInterface) bool {
 
 func (kc *KubeControllers) Run() error {
 	kc.coreInformerFactory.Start(kc.stopChannel)
-	kc.machineInformerFactory.Start(kc.stopChannel)
+	kc.bmhInformerFactory.Start(kc.stopChannel)
 
 	syncFuncs := []cache.InformerSynced{
 		kc.nodeInformer.Informer().HasSynced,
 		kc.configMapInformer.HasSynced,
 		kc.secretInformer.HasSynced,
-	}
-	if kc.machineAvailable {
-		syncFuncs = append(syncFuncs, kc.machineInformer.Informer().HasSynced)
 	}
 	if kc.bmhAvailable {
 		syncFuncs = append(syncFuncs, kc.bmhInformer.Informer().HasSynced)

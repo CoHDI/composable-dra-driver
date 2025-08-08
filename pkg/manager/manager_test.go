@@ -125,14 +125,13 @@ func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *ht
 
 	secret := config.CreateSecret(certPem, 1)
 	testConfig := &config.TestConfig{
-		Spec:     testSpec,
-		Secret:   secret,
-		Nodes:    make([]*v1.Node, config.TestNodeCount),
-		Machines: make([]*unstructured.Unstructured, config.TestNodeCount),
-		BMHs:     make([]*unstructured.Unstructured, config.TestNodeCount),
+		Spec:   testSpec,
+		Secret: secret,
+		Nodes:  make([]*v1.Node, config.TestNodeCount),
+		BMHs:   make([]*unstructured.Unstructured, config.TestNodeCount),
 	}
 	for i := 0; i < config.TestNodeCount; i++ {
-		testConfig.Nodes[i], testConfig.BMHs[i], testConfig.Machines[i] = ku.CreateNodeBMHMachines(i, "test-namespace", testConfig.Spec.UseCapiBmh)
+		testConfig.Nodes[i], testConfig.BMHs[i] = ku.CreateNodeBMHs(i, "test-namespace", testConfig.Spec.UseCapiBmh)
 	}
 
 	kubeclient, dynamicclient := ku.CreateTestClient(t, testConfig)

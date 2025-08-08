@@ -140,12 +140,11 @@ func TestKubeControllersGetNode(t *testing.T) {
 				Spec: config.TestSpec{
 					UseCapiBmh: false,
 				},
-				Nodes:    make([]*corev1.Node, config.TestNodeCount),
-				BMHs:     make([]*unstructured.Unstructured, config.TestNodeCount),
-				Machines: make([]*unstructured.Unstructured, config.TestNodeCount),
+				Nodes: make([]*corev1.Node, config.TestNodeCount),
+				BMHs:  make([]*unstructured.Unstructured, config.TestNodeCount),
 			}
 			for i := 0; i < config.TestNodeCount; i++ {
-				testConfig.Nodes[i], testConfig.BMHs[i], testConfig.Machines[i] = CreateNodeBMHMachines(i, "test-namespace", testConfig.Spec.UseCapiBmh)
+				testConfig.Nodes[i], testConfig.BMHs[i] = CreateNodeBMHs(i, "test-namespace", testConfig.Spec.UseCapiBmh)
 			}
 
 			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
@@ -345,12 +344,11 @@ func TestKubeControllersListProviderIDs(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testConfig := &config.TestConfig{
-				Nodes:    make([]*corev1.Node, tc.nodeCount),
-				BMHs:     make([]*unstructured.Unstructured, tc.nodeCount),
-				Machines: make([]*unstructured.Unstructured, tc.nodeCount),
+				Nodes: make([]*corev1.Node, tc.nodeCount),
+				BMHs:  make([]*unstructured.Unstructured, tc.nodeCount),
 			}
 			for i := 0; i < tc.nodeCount; i++ {
-				testConfig.Nodes[i], testConfig.BMHs[i], testConfig.Machines[i] = CreateNodeBMHMachines(i, "test-namespace", tc.useCapiBmh)
+				testConfig.Nodes[i], testConfig.BMHs[i] = CreateNodeBMHs(i, "test-namespace", tc.useCapiBmh)
 			}
 
 			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
@@ -406,12 +404,11 @@ func TestKubeControllersFindNodeNameByProviderID(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testConfig := &config.TestConfig{
-				Nodes:    make([]*corev1.Node, tc.nodeCount),
-				BMHs:     make([]*unstructured.Unstructured, tc.nodeCount),
-				Machines: make([]*unstructured.Unstructured, tc.nodeCount),
+				Nodes: make([]*corev1.Node, tc.nodeCount),
+				BMHs:  make([]*unstructured.Unstructured, tc.nodeCount),
 			}
 			for i := 0; i < tc.nodeCount; i++ {
-				testConfig.Nodes[i], testConfig.BMHs[i], testConfig.Machines[i] = CreateNodeBMHMachines(i, "test-namespace", tc.useCapiBmh)
+				testConfig.Nodes[i], testConfig.BMHs[i] = CreateNodeBMHs(i, "test-namespace", tc.useCapiBmh)
 			}
 
 			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
@@ -459,12 +456,11 @@ func TestKubeControllersFindMachineUUIDByProviderID(t *testing.T) {
 					UseCapiBmh: true,
 					DRAenabled: true,
 				},
-				Nodes:    make([]*corev1.Node, tc.nodeCount),
-				BMHs:     make([]*unstructured.Unstructured, tc.nodeCount),
-				Machines: make([]*unstructured.Unstructured, tc.nodeCount),
+				Nodes: make([]*corev1.Node, tc.nodeCount),
+				BMHs:  make([]*unstructured.Unstructured, tc.nodeCount),
 			}
 			for i := 0; i < tc.nodeCount; i++ {
-				testConfig.Nodes[i], testConfig.BMHs[i], testConfig.Machines[i] = CreateNodeBMHMachines(i, "test-namespace", testConfig.Spec.UseCapiBmh)
+				testConfig.Nodes[i], testConfig.BMHs[i] = CreateNodeBMHs(i, "test-namespace", testConfig.Spec.UseCapiBmh)
 			}
 
 			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
