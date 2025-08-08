@@ -48,17 +48,6 @@ func CreateTestClient(t testing.TB, testConfig *config.TestConfig) (*fakekube.Cl
 
 	kubeclient := fakekube.NewSimpleClientset(objects...)
 
-	machineAPI := &metav1.APIResourceList{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: MachineAPIVersion,
-		},
-		GroupVersion: MachineAPIGroup + "/" + MachineAPIVersion,
-		APIResources: []metav1.APIResource{
-			{
-				Name: MachineResourceName,
-			},
-		},
-	}
 	bmhAPI := &metav1.APIResourceList{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: Metal3APIVersion,
@@ -70,7 +59,7 @@ func CreateTestClient(t testing.TB, testConfig *config.TestConfig) (*fakekube.Cl
 			},
 		},
 	}
-	kubeclient.Fake.Resources = append(kubeclient.Fake.Resources, machineAPI, bmhAPI)
+	kubeclient.Fake.Resources = append(kubeclient.Fake.Resources, bmhAPI)
 
 	if testConfig.Spec.DRAenabled {
 		resourceAPI := &metav1.APIResourceList{
@@ -88,24 +77,18 @@ func CreateTestClient(t testing.TB, testConfig *config.TestConfig) (*fakekube.Cl
 		kubeclient.Fake.Resources = append(kubeclient.Fake.Resources, resourceAPI)
 	}
 
-	machineObjects := make([]runtime.Object, 0)
-	for _, machine := range testConfig.Machines {
-		if machine != nil {
-			machineObjects = append(machineObjects, machine)
-		}
-	}
+	bmhObjects := make([]runtime.Object, 0)
 	for _, bmh := range testConfig.BMHs {
 		if bmh != nil {
-			machineObjects = append(machineObjects, bmh)
+			bmhObjects = append(bmhObjects, bmh)
 		}
 	}
 	dynamicclient := fakedynamic.NewSimpleDynamicClientWithCustomListKinds(
 		runtime.NewScheme(),
 		map[schema.GroupVersionResource]string{
 			{Group: Metal3APIGroup, Version: Metal3APIVersion, Resource: BareMetalHostResourceName}: "kindList",
-			{Group: MachineAPIGroup, Version: MachineAPIVersion, Resource: MachineResourceName}:     "kindList",
 		},
-		machineObjects...,
+		bmhObjects...,
 	)
 
 	return kubeclient, dynamicclient
@@ -128,7 +111,7 @@ func CreateTestKubeControllers(t testing.TB, testConfig *config.TestConfig, kube
 
 }
 
-func CreateNodeBMHMachines(num int, namespace string, useCapiBmh bool) (node *corev1.Node, bmh *unstructured.Unstructured, machine *unstructured.Unstructured) {
+func CreateNodeBMHs(num int, namespace string, useCapiBmh bool) (node *corev1.Node, bmh *unstructured.Unstructured) {
 	if useCapiBmh {
 		bmh = &unstructured.Unstructured{
 			Object: map[string]interface{}{
@@ -158,5 +141,5 @@ func CreateNodeBMHMachines(num int, namespace string, useCapiBmh bool) (node *co
 			ProviderID: fmt.Sprintf("test://00000000-0000-0000-0000-00000000000%d", num),
 		},
 	}
-	return node, bmh, machine
+	return node, bmh
 }

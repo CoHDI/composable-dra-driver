@@ -61,9 +61,10 @@ func TestGetDeviceInfos(t *testing.T) {
 			expectedErr:         false,
 		},
 		{
-			name:        "When device-info in ConfigMap is not existed",
-			cm:          cms[1],
-			expectedErr: false,
+			name:           "When device-info in ConfigMap is not existed",
+			cm:             cms[1],
+			expectedErr:    true,
+			expectedErrMsg: "configmap device-info is nil",
 		},
 		{
 			name:           "When device-info in ConfigMap is not formed as YAML",
@@ -299,6 +300,7 @@ func TestGetLabelPrefix(t *testing.T) {
 	testCases := []struct {
 		name                string
 		cm                  *corev1.ConfigMap
+		nilLabelPrefix      bool
 		expectedErr         bool
 		expectedLabelPrefix string
 		expectedLabelLength int
@@ -328,10 +330,20 @@ func TestGetLabelPrefix(t *testing.T) {
 			expectedErr:    true,
 			expectedErrMsg: "label-prefix validation error",
 		},
+		{
+			name:           "When label-prefix is nil",
+			cm:             cms[0],
+			nilLabelPrefix: true,
+			expectedErr:    true,
+			expectedErrMsg: "configmap label-prefix is nil",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.nilLabelPrefix {
+				delete(tc.cm.Data, "label-prefix")
+			}
 			labelPrefix, err := GetLabelPrefix(tc.cm)
 			if tc.expectedErr {
 				if err == nil {

@@ -84,16 +84,16 @@ type TestConfig struct {
 	Secret     *corev1.Secret
 	Nodes      []*corev1.Node
 	BMHs       []*unstructured.Unstructured
-	Machines   []*unstructured.Unstructured
 }
 
 type TestSpec struct {
-	UseCapiBmh         bool
-	UseCM              bool
-	DRAenabled         bool
-	CaseDriverResource int
-	CaseDeviceInfo     int
-	CaseDevice         int
+	UseCapiBmh           bool
+	UseCM                bool
+	DRAenabled           bool
+	AvailableDeviceCount int
+	CaseDriverResource   int
+	CaseDeviceInfo       int
+	CaseDevice           int
 }
 
 func CreateDeviceInfos(devInfoCase int) []DeviceInfo {

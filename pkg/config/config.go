@@ -64,12 +64,10 @@ type DeviceInfo struct {
 
 func GetDeviceInfos(cm *corev1.ConfigMap) ([]DeviceInfo, error) {
 	if cm.Data == nil {
-		slog.Warn("configmap data is nil")
-		return nil, nil
+		return nil, fmt.Errorf("configmap data is nil")
 	}
 	if devInfoStr, found := cm.Data[DeviceInfoKey]; !found {
-		slog.Warn("configmap device-info is nil")
-		return nil, nil
+		return nil, fmt.Errorf("configmap device-info is nil")
 	} else {
 		var devInfos []DeviceInfo
 		bytes := []byte(devInfoStr)
@@ -116,12 +114,10 @@ func HasProductName(fl validator.FieldLevel) bool {
 
 func GetLabelPrefix(cm *corev1.ConfigMap) (string, error) {
 	if cm.Data == nil {
-		slog.Warn("configmap data is nil")
-		return "", nil
+		return "", fmt.Errorf("configmap data is nil")
 	}
 	if labelPrefix, found := cm.Data[LabelPrefixKey]; !found {
-		slog.Warn("configmap label-prefix is nil")
-		return "", nil
+		return "", fmt.Errorf("configmap label-prefix is nil")
 	} else {
 		errs := validation.IsDNS1123Subdomain(labelPrefix)
 		if len(labelPrefix) > 100 {

@@ -44,7 +44,7 @@ const (
 
 type CDIManager struct {
 	coreClient           kube_client.Interface
-	machineClient        dynamic.Interface
+	bmhClient            dynamic.Interface
 	discoveryClient      discovery.DiscoveryInterface
 	namedDriverResources map[string]*resourceslice.DriverResources
 	deviceInfos          []config.DeviceInfo
@@ -90,9 +90,9 @@ func StartCDIManager(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
-	machineclient, err := dynamic.NewForConfig(kconfig)
+	bmhclient, err := dynamic.NewForConfig(kconfig)
 	if err != nil {
-		slog.Error("Failed to create machine client", "error", err)
+		slog.Error("Failed to create bmh client", "error", err)
 		return err
 	}
 
@@ -102,8 +102,8 @@ func StartCDIManager(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
-	// Create k8s controllers for Nodes, ConfigMap, Secret, Machine and BMH
-	kc, err := kube_utils.CreateKubeControllers(coreclient, machineclient, discoveryClient, cfg.UseCapiBmh, ctx.Done())
+	// Create k8s controllers for Nodes, ConfigMap, Secret and BMH
+	kc, err := kube_utils.CreateKubeControllers(coreclient, bmhclient, discoveryClient, cfg.UseCapiBmh, ctx.Done())
 	if err != nil {
 		slog.Error("Failed to create kube controllers")
 		return err
@@ -150,7 +150,7 @@ func StartCDIManager(ctx context.Context, cfg *config.Config) error {
 
 	m := &CDIManager{
 		coreClient:           coreclient,
-		machineClient:        machineclient,
+		bmhClient:            bmhclient,
 		discoveryClient:      discoveryClient,
 		namedDriverResources: ndr,
 		deviceInfos:          devInfos,
@@ -346,7 +346,7 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 		}
 	}
 
-	// Update ResourceSlice using machineInfos
+	// Update ResourceSlice using machine infos
 	m.manageCDIResourceSlices(machines, controllers)
 
 	// Add labels to Node
@@ -586,13 +586,19 @@ func (m *CDIManager) manageCDINodeLabel(ctx context.Context, machines []*machine
 			slog.Error("failed to get node", "nodeName", machine.nodeName)
 			return err
 		}
-		// Label for fabric
 		fabricLabelKey := m.labelPrefix + "/" + "fabric"
 		if node != nil {
-			node.Labels[fabricLabelKey] = strconv.Itoa(*machine.fabricID)
-			slog.Debug("set labels for fabric", "nodeName", machine.nodeName, "label", fabricLabelKey+"="+node.Labels[fabricLabelKey])
+			// Label for fabric
+			if machine.fabricID != nil {
+				fabricID := strconv.Itoa(*machine.fabricID)
+				if node.Labels[fabricLabelKey] != fabricID {
+					node.Labels[fabricLabelKey] = fabricID
+					slog.Info("set labels for fabric", "nodeName", machine.nodeName, "label", fabricLabelKey+"="+node.Labels[fabricLabelKey])
+				}
+			}
+
+			// Label for the min and max number of devices
 			if m.cdiOptions.useCM {
-				// Label for the min and max number of devices
 				for _, device := range machine.deviceList {
 					maxLabelKey := m.labelPrefix + "/" + device.k8sDeviceName + "-size-max"
 					if device.maxDeviceCount != nil {

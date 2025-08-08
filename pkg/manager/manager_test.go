@@ -125,14 +125,13 @@ func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *ht
 
 	secret := config.CreateSecret(certPem, 1)
 	testConfig := &config.TestConfig{
-		Spec:     testSpec,
-		Secret:   secret,
-		Nodes:    make([]*v1.Node, config.TestNodeCount),
-		Machines: make([]*unstructured.Unstructured, config.TestNodeCount),
-		BMHs:     make([]*unstructured.Unstructured, config.TestNodeCount),
+		Spec:   testSpec,
+		Secret: secret,
+		Nodes:  make([]*v1.Node, config.TestNodeCount),
+		BMHs:   make([]*unstructured.Unstructured, config.TestNodeCount),
 	}
 	for i := 0; i < config.TestNodeCount; i++ {
-		testConfig.Nodes[i], testConfig.BMHs[i], testConfig.Machines[i] = ku.CreateNodeBMHMachines(i, "test-namespace", testConfig.Spec.UseCapiBmh)
+		testConfig.Nodes[i], testConfig.BMHs[i] = ku.CreateNodeBMHs(i, "test-namespace", testConfig.Spec.UseCapiBmh)
 	}
 
 	kubeclient, dynamicclient := ku.CreateTestClient(t, testConfig)
@@ -186,7 +185,7 @@ func createResourceSliceCreateReactor() func(action k8stesting.Action) (handled 
 	}
 }
 
-func createTestMachines(availableDeviceCount int, testSpec config.TestSpec) []*machine {
+func createTestMachines(ts config.TestSpec) []*machine {
 	var machines []*machine
 	for i := 0; i < config.TestNodeCount; i++ {
 		nodeGroupUUID := fmt.Sprintf("%d0000000-0000-0000-0000-000000000000", (i/nodeGroupNum)+1)
@@ -195,7 +194,7 @@ func createTestMachines(availableDeviceCount int, testSpec config.TestSpec) []*m
 			fabricID:      ptr.To((i % fabricIdNum) + 1),
 			nodeGroupUUID: nodeGroupUUID,
 		}
-		machine.deviceList = createTestDeviceList(availableDeviceCount, nodeGroupUUID, testSpec.CaseDevice)
+		machine.deviceList = createTestDeviceList(ts.AvailableDeviceCount, nodeGroupUUID, ts.CaseDevice)
 		machines = append(machines, machine)
 	}
 	return machines
@@ -881,7 +880,8 @@ func TestCDIManagerManageCDIResourceSlices(t *testing.T) {
 			defer stop()
 			controlles := createTestControllers(t, m.coreClient)
 			for i, availableDevice := range tc.availableDeviceCount {
-				machines := createTestMachines(availableDevice, testSpec)
+				testSpec.AvailableDeviceCount = availableDevice
+				machines := createTestMachines(testSpec)
 				m.manageCDIResourceSlices(machines, controlles)
 				time.Sleep(time.Second)
 				resourceslices, err := m.coreClient.ResourceV1().ResourceSlices().List(context.Background(), metav1.ListOptions{})
@@ -1099,9 +1099,10 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 		nodeName          string
 		deviceName        string
 		caseDevice        int
+		maxNumChanged     bool
 		expectedFabric    string
 		expectedMinDevice string
-		expectedMaxDevice string
+		expectedMaxDevice []string
 		expectedErr       bool
 	}{
 		{
@@ -1111,7 +1112,7 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 			caseDevice:        CaseDeviceCorrect,
 			expectedFabric:    "1",
 			expectedMinDevice: "1",
-			expectedMaxDevice: "3",
+			expectedMaxDevice: []string{"3"},
 			expectedErr:       false,
 		},
 		{
@@ -1120,49 +1121,79 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 			deviceName:        "test-device-1",
 			caseDevice:        CaseDeviceMinMaxNil,
 			expectedFabric:    "1",
-			expectedMaxDevice: "",
+			expectedMaxDevice: []string{""},
 			expectedMinDevice: "",
+			expectedErr:       false,
+		},
+		{
+			name:              "When max device num is changed",
+			nodeName:          "test-node-0",
+			deviceName:        "test-device-1",
+			caseDevice:        CaseDeviceCorrect,
+			maxNumChanged:     true,
+			expectedFabric:    "1",
+			expectedMaxDevice: []string{"3", "5"},
+			expectedMinDevice: "1",
 			expectedErr:       false,
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
-				UseCapiBmh: false,
-				UseCM:      true,
-				DRAenabled: true,
-				CaseDevice: tc.caseDevice,
+				UseCapiBmh:           false,
+				UseCM:                true,
+				DRAenabled:           true,
+				AvailableDeviceCount: 3,
+				CaseDevice:           tc.caseDevice,
 			}
 			m, _, stop := createTestManager(t, testSpec)
 			defer stop()
-			availableDevice := 3
-			machines := createTestMachines(availableDevice, testSpec)
 
-			err := m.manageCDINodeLabel(context.Background(), machines)
+			count := 1
+			if tc.maxNumChanged {
+				count++
+			}
+			for i := 0; i < count; i++ {
+				machines := createTestMachines(testSpec)
+				if i > 0 && tc.maxNumChanged {
+					for _, machine := range machines {
+						if machine.nodeName == tc.nodeName {
+							for _, device := range machine.deviceList {
+								if device.k8sDeviceName == tc.deviceName {
+									if device.maxDeviceCount != nil {
+										*device.maxDeviceCount += i * 2
+									}
+								}
+							}
+						}
+					}
+				}
+				err := m.manageCDINodeLabel(context.Background(), machines)
 
-			if tc.expectedErr {
-				if err == nil {
-					t.Error("expected error, but got none")
-				}
-			} else if !tc.expectedErr {
-				if err != nil {
-					t.Errorf("unexpected error: %v", err)
-				}
-				node, err := m.coreClient.CoreV1().Nodes().Get(context.Background(), tc.nodeName, metav1.GetOptions{})
-				if err != nil {
-					t.Fatalf("not found node, node name: %s", tc.nodeName)
-				}
-				if node != nil {
-					if node.Labels["cohdi.com/fabric"] != tc.expectedFabric {
-						t.Errorf("unexpected label of fabric id, expected %s but got %s", node.Labels["cohdi.com/fabric"], tc.expectedFabric)
+				if tc.expectedErr {
+					if err == nil {
+						t.Error("expected error, but got none")
 					}
-					maxLabel := fmt.Sprintf("cohdi.com/%s-size-max", tc.deviceName)
-					if node.Labels[maxLabel] != tc.expectedMaxDevice {
-						t.Errorf("unexpected label of max device num, expected %s but got %s", tc.expectedMaxDevice, node.Labels[maxLabel])
+				} else if !tc.expectedErr {
+					if err != nil {
+						t.Errorf("unexpected error: %v", err)
 					}
-					minLabel := fmt.Sprintf("cohdi.com/%s-size-min", tc.deviceName)
-					if node.Labels[minLabel] != tc.expectedMinDevice {
-						t.Errorf("unexpected label of min device num, expected %s but got %s", tc.expectedMinDevice, node.Labels[minLabel])
+					node, err := m.coreClient.CoreV1().Nodes().Get(context.Background(), tc.nodeName, metav1.GetOptions{})
+					if err != nil {
+						t.Fatalf("not found node, node name: %s", tc.nodeName)
+					}
+					if node != nil {
+						if node.Labels["cohdi.com/fabric"] != tc.expectedFabric {
+							t.Errorf("unexpected label of fabric id, expected %s but got %s", tc.expectedFabric, node.Labels["cohdi.com/fabric"])
+						}
+						maxLabel := fmt.Sprintf("cohdi.com/%s-size-max", tc.deviceName)
+						if node.Labels[maxLabel] != tc.expectedMaxDevice[i] {
+							t.Errorf("unexpected label of max device num, expected %s but got %s", tc.expectedMaxDevice, node.Labels[maxLabel])
+						}
+						minLabel := fmt.Sprintf("cohdi.com/%s-size-min", tc.deviceName)
+						if node.Labels[minLabel] != tc.expectedMinDevice {
+							t.Errorf("unexpected label of min device num, expected %s but got %s", tc.expectedMinDevice, node.Labels[minLabel])
+						}
 					}
 				}
 			}
