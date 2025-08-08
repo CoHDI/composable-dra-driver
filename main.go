@@ -56,13 +56,13 @@ func newApp() *cli.App {
 		},
 		&cli.DurationFlag{
 			Name:        "scan-interval",
-			Usage:       "How often CDI resource pool is checked for renewing ResourceSlice. Its format can be set as XXhYYmZZs.",
+			Usage:       "How often CDI resource pool is checked for renewing ResourceSlice. Its format can be set as ZZs. It must be set from 5s to 86400s",
 			Destination: &config.ScanInterval,
 			EnvVars:     []string{"SCAN_INTERVAL"},
 			Value:       1 * time.Minute,
 			Action: func(ctx *cli.Context, scanInterval time.Duration) error {
-				if scanInterval <= 0*time.Second || 86400*time.Second <= scanInterval {
-					return fmt.Errorf("scan interval must be set from 0s to 86400s")
+				if scanInterval < 5*time.Second || 86400*time.Second < scanInterval {
+					return fmt.Errorf("scan interval must be set from 5s to 86400s")
 				}
 				return nil
 			},
