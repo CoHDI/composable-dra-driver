@@ -53,9 +53,9 @@ type DeviceInfo struct {
 	// Name of a device model registered to ResourceManager in CDI
 	CDIModelName string `yaml:"cdi-model-name" validate:"required,max=1000"`
 	// Attributes of ResourceSlice that will be exposed. It corresponds to vendor's ResourceSlice
-	DRAAttributes map[string]string `yaml:"dra-attributes" validate:"max=100,has-productName,dive,keys,max=1000,endkeys,max=1000"`
+	DRAAttributes map[string]string `yaml:"dra-attributes" validate:"max=32,has-productName,dive,keys,is-qualifiedName,endkeys,max=64"`
 	// Name of vendor DRA driver for a device
-	DriverName string `yaml:"driver-name" validate:"required,max=1000"`
+	DriverName string `yaml:"driver-name" validate:"required,max=63,is-dns"`
 	// DRA pool name or label name affixed to a node. Basic format is "<vendor>-<model>"
 	K8sDeviceName string `yaml:"k8s-device-name" validate:"required,max=50,is-dns"`
 	// List of device indexes unable to coexist in the same node
@@ -81,6 +81,7 @@ func GetDeviceInfos(cm *corev1.ConfigMap) ([]DeviceInfo, error) {
 		// Validate the factor in device-info
 		validate := validator.New()
 		validate.RegisterValidation("is-dns", ValidateDNSLabel)
+		validate.RegisterValidation("is-qualifiedName", IsQualifiedName)
 		validate.RegisterValidation("has-productName", HasProductName)
 		if err := validate.Struct(devInfoList); err != nil {
 			return nil, err
@@ -95,6 +96,19 @@ func ValidateDNSLabel(fl validator.FieldLevel) bool {
 	if len(errs) > 0 {
 		for _, err := range errs {
 			slog.Error("validation error. It must be DNS label", "value", value, "error", err)
+		}
+		return false
+	} else {
+		return true
+	}
+}
+
+func IsQualifiedName(fl validator.FieldLevel) bool {
+	value := fl.Field().String()
+	errs := validation.IsQualifiedName(value)
+	if len(errs) > 0 {
+		for _, err := range errs {
+			slog.Error("validation error. It must be QualifiedName", "value", value, "error", err)
 		}
 		return false
 	} else {

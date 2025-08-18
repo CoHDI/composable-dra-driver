@@ -55,14 +55,14 @@ const (
 	CaseDevInfoDeviceNotDNSLabel
 	CaseDevInfoCoexist100
 	CaseDevInfoCoexist101
-	CaseDevInfoAttr100
-	CaseDevInfoAttr101
-	CaseDevInfoAttrKey1000B
-	CaseDevInfoAttrKey1001B
-	CaseDevInfoAttrValue1000B
-	CaseDevInfoAttrValue1001B
-	CaseDevInfoDriver1000B
-	CaseDevInfoDriver1001B
+	CaseDevInfoAttr32
+	CaseDevInfoAttr33
+	CaseDevInfoAttrKey63B
+	CaseDevInfoAttrKey64B
+	CaseDevInfoAttrValue64B
+	CaseDevInfoAttrValue65B
+	CaseDevInfoDriver63B
+	CaseDevInfoDriver64B
 	CaseDevInfoEmptyDriver
 	CaseDevInfoEmptyModel
 	CaseDevInfoEmptyAttr
@@ -271,7 +271,7 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 		}
 		devInfos := []DeviceInfo{devInfo}
 		return devInfos
-	case CaseDevInfoAttr100:
+	case CaseDevInfoAttr32:
 		devInfo := DeviceInfo{
 			Index:         1,
 			CDIModelName:  "DEVICE 1",
@@ -281,12 +281,12 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 				"productName": "TEST DEVICE 1",
 			},
 		}
-		for i := 0; i < 99; i++ {
+		for i := 0; i < 31; i++ {
 			devInfo.DRAAttributes[strconv.Itoa(i)] = "attribute-" + strconv.Itoa(i)
 		}
 		deviInfos := []DeviceInfo{devInfo}
 		return deviInfos
-	case CaseDevInfoAttr101:
+	case CaseDevInfoAttr33:
 		devInfo := DeviceInfo{
 			Index:         1,
 			CDIModelName:  "DEVICE 1",
@@ -296,66 +296,66 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 				"productName": "TEST DEVICE 1",
 			},
 		}
-		for i := 0; i < 100; i++ {
+		for i := 0; i < 32; i++ {
 			devInfo.DRAAttributes[strconv.Itoa(i)] = "attribute-" + strconv.Itoa(i)
 		}
 		deviInfos := []DeviceInfo{devInfo}
 		return deviInfos
-	case CaseDevInfoAttrKey1000B:
+	case CaseDevInfoAttrKey63B:
 		devInfo := DeviceInfo{
 			Index:         1,
 			CDIModelName:  "DEVICE 1",
 			DriverName:    "test-driver-1",
 			K8sDeviceName: "test-device-1",
 			DRAAttributes: map[string]string{
-				"productName":      "TEST DEVICE 1",
-				RandomString(1000): "key length test",
+				"productName":    "TEST DEVICE 1",
+				RandomString(63): "key length test",
 			},
 		}
 		devInfos := []DeviceInfo{devInfo}
 		return devInfos
-	case CaseDevInfoAttrKey1001B:
+	case CaseDevInfoAttrKey64B:
 		devInfo := DeviceInfo{
 			Index:         1,
 			CDIModelName:  "DEVICE 1",
 			DriverName:    "test-driver-1",
 			K8sDeviceName: "test-device-1",
 			DRAAttributes: map[string]string{
-				"productName":      "TEST DEVICE 1",
-				RandomString(1001): "key length test",
+				"productName":    "TEST DEVICE 1",
+				RandomString(64): "key length test",
 			},
 		}
 		devInfos := []DeviceInfo{devInfo}
 		return devInfos
-	case CaseDevInfoAttrValue1000B:
+	case CaseDevInfoAttrValue64B:
 		devInfo := DeviceInfo{
 			Index:         1,
 			CDIModelName:  "DEVICE 1",
 			DriverName:    "test-driver-1",
 			K8sDeviceName: "test-device-1",
 			DRAAttributes: map[string]string{
-				"productName": RandomString(1000),
+				"productName": RandomString(64),
 			},
 		}
 		devInfos := []DeviceInfo{devInfo}
 		return devInfos
-	case CaseDevInfoAttrValue1001B:
+	case CaseDevInfoAttrValue65B:
 		devInfo := DeviceInfo{
 			Index:         1,
 			CDIModelName:  "DEVICE 1",
 			DriverName:    "test-driver-1",
 			K8sDeviceName: "test-device-1",
 			DRAAttributes: map[string]string{
-				"productName": RandomString(1001),
+				"productName": RandomString(65),
 			},
 		}
 		devInfos := []DeviceInfo{devInfo}
 		return devInfos
-	case CaseDevInfoDriver1000B:
+	case CaseDevInfoDriver63B:
 		devInfo := DeviceInfo{
 			Index:         1,
 			CDIModelName:  "DEVICE 1",
-			DriverName:    RandomString(1000),
+			DriverName:    RandomString(63),
 			K8sDeviceName: "test-device-1",
 			DRAAttributes: map[string]string{
 				"productName": "TEST DEVICE 1",
@@ -363,11 +363,11 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 		}
 		devInfos := []DeviceInfo{devInfo}
 		return devInfos
-	case CaseDevInfoDriver1001B:
+	case CaseDevInfoDriver64B:
 		devInfo := DeviceInfo{
 			Index:         1,
 			CDIModelName:  "DEVICE 1",
-			DriverName:    RandomString(1001),
+			DriverName:    RandomString(64),
 			K8sDeviceName: "test-device-1",
 			DRAAttributes: map[string]string{
 				"productName": "TEST DEVICE 1",
