@@ -32,6 +32,12 @@ import (
 	fakekube "k8s.io/client-go/kubernetes/fake"
 )
 
+var GVK_BMH = schema.GroupVersionResource{
+	Group:    Metal3APIGroup,
+	Version:  Metal3APIVersion,
+	Resource: BareMetalHostResourceName,
+}
+
 type TestControllerShutdownFunc func()
 
 func CreateTestClient(t testing.TB, testConfig *config.TestConfig) (*fakekube.Clientset, *fakedynamic.FakeDynamicClient) {
@@ -86,7 +92,7 @@ func CreateTestClient(t testing.TB, testConfig *config.TestConfig) (*fakekube.Cl
 	dynamicclient := fakedynamic.NewSimpleDynamicClientWithCustomListKinds(
 		runtime.NewScheme(),
 		map[schema.GroupVersionResource]string{
-			{Group: Metal3APIGroup, Version: Metal3APIVersion, Resource: BareMetalHostResourceName}: "kindList",
+			GVK_BMH: "kindList",
 		},
 		bmhObjects...,
 	)

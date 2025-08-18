@@ -54,6 +54,7 @@ const (
 
 const (
 	CaseDriverResourceCorrect = iota
+	CaseDriverResourceEmpty
 )
 
 const (
@@ -113,6 +114,13 @@ func createTestDriverResources(caseDriverResource int) map[string]*resourceslice
 		ndr["test-driver-2"] = &resourceslice.DriverResources{
 			Pools: make(map[string]resourceslice.Pool),
 		}
+	case CaseDriverResourceEmpty:
+		ndr["test-driver-1"] = &resourceslice.DriverResources{
+			Pools: make(map[string]resourceslice.Pool),
+		}
+		ndr["test-driver-2"] = &resourceslice.DriverResources{
+			Pools: make(map[string]resourceslice.Pool),
+		}
 	}
 	return ndr
 }
@@ -156,6 +164,7 @@ func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *ht
 
 	return &CDIManager{
 		coreClient:           kubeclient,
+		bmhClient:            dynamicclient,
 		discoveryClient:      kubeclient.Discovery(),
 		namedDriverResources: ndr,
 		cdiClient:            cdiClient,
@@ -398,6 +407,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 		useCM                    bool
 		nodeName                 string
 		caseDevInfo              int
+		deletedAnnotationBmh     []string
 		expectedErr              bool
 		expectedErrMsg           string
 		expectedPoolName         string
@@ -405,7 +415,6 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 		expectedDeviceName       string
 		expectedProductName      string
 		expectedBCFailure        []string
-		expectedBindingTimeout   int64
 		expectedAvailableDevices int
 		expectedResourceSliceNum int
 		expectedFabric           string
@@ -425,7 +434,6 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 			expectedDriverName:       "test-driver-1",
 			expectedProductName:      "TEST DEVICE 1",
 			expectedBCFailure:        []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
-			expectedBindingTimeout:   100,
 			expectedMaxDevice:        "",
 			expectedMinDevice:        "",
 		},
@@ -439,18 +447,68 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 			expectedMaxDevice:  "3",
 			expectedMinDevice:  "1",
 		},
+		{
+			name:                     "When some BMH have no machine uuid",
+			useCapiBmh:               true,
+			useCM:                    true,
+			deletedAnnotationBmh:     []string{"test-bmh-0", "test-bmh-3", "test-bmh-6"},
+			nodeName:                 "test-node-0",
+			expectedDeviceName:       "test-device-2",
+			expectedFabric:           "",
+			expectedMaxDevice:        "",
+			expectedMinDevice:        "",
+			expectedResourceSliceNum: 6,
+			expectedAvailableDevices: 5,
+			expectedPoolName:         "test-device-2-fabric2",
+			expectedDriverName:       "test-driver-1",
+			expectedProductName:      "TEST DEVICE 2",
+			expectedBCFailure:        []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
+		},
+		{
+			name:                 "When all BMHs have no machine uuid",
+			useCapiBmh:           true,
+			useCM:                true,
+			deletedAnnotationBmh: []string{"ALL"},
+			expectedErr:          true,
+			expectedErrMsg:       "not any machine uuid is found",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
-				UseCapiBmh:     tc.useCapiBmh,
-				UseCM:          tc.useCM,
-				DRAenabled:     true,
-				CaseDeviceInfo: tc.caseDevInfo,
+				UseCapiBmh:         tc.useCapiBmh,
+				UseCM:              tc.useCM,
+				DRAenabled:         true,
+				CaseDeviceInfo:     tc.caseDevInfo,
+				CaseDriverResource: CaseDriverResourceEmpty,
 			}
 			m, server, stop := createTestManager(t, testSpec)
 			defer server.Close()
 			defer stop()
+
+			if len(tc.deletedAnnotationBmh) > 0 {
+				var bmhNames []string
+				if tc.deletedAnnotationBmh[0] == "ALL" {
+					for i := 0; i < 9; i++ {
+						bmhNames = append(bmhNames, fmt.Sprintf("test-bmh-%d", i))
+					}
+				} else {
+					bmhNames = tc.deletedAnnotationBmh
+				}
+				for _, bmhName := range bmhNames {
+					bmh, err := m.bmhClient.Resource(ku.GVK_BMH).Namespace("test-namespace").Get(context.Background(), bmhName, metav1.GetOptions{})
+					if err != nil {
+						t.Fatalf("failed to get BareMetalHost: %v", err)
+					}
+					bmh = bmh.DeepCopy()
+					unstructured.RemoveNestedField(bmh.UnstructuredContent(), "metadata", "annotations", "cluster-manager.cdi.io/machine")
+					_, err = m.bmhClient.Resource(ku.GVK_BMH).Namespace("test-namespace").Update(context.Background(), bmh, metav1.UpdateOptions{})
+					if err != nil {
+						t.Fatalf("failed to update BareMetalHost: %v", err)
+					}
+				}
+			}
+
 			controlles := createTestControllers(t, m.coreClient)
 
 			err := m.startCheckResourcePoolLoop(context.Background(), controlles)

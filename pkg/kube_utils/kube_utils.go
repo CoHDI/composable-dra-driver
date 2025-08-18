@@ -325,7 +325,7 @@ func (kc *KubeControllers) FindMachineUUIDByProviderID(providerID normalizedProv
 		if annotations != nil {
 			x, found := annotations["cluster-manager.cdi.io/machine"]
 			if !found {
-				return "", fmt.Errorf("not found machine uuid from bmh")
+				return "", nil
 			}
 			machineUUID, ok = x.(string)
 			if !ok {

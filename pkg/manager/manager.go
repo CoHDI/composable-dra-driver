@@ -203,7 +203,7 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 	// Get the map of node name vs machine uuid
 	muuids, err := m.getMachineUUIDs()
 	if err != nil {
-		slog.Error("failed to get machine UUID")
+		slog.Error("failed to get machine uuid")
 		return err
 	}
 	if len(muuids) == 0 {
@@ -381,7 +381,7 @@ func (m *CDIManager) getMachineUUIDs() (map[string]string, error) {
 			// If using cluster-api and BareMetalHost, machine uuid must be derived from annotation of BareMetalHost
 			uuid, err = m.kubecontrollers.FindMachineUUIDByProviderID(providerID)
 			if err != nil {
-				slog.Error("failed to get machine uuid", "error", err)
+				slog.Error("failed to get machine uuid from bmh", "error", err)
 				return nil, err
 			} else if uuid == "" {
 				slog.Warn("missing machine uuid for providerID, so this machine is not created", "providerID", providerID)
