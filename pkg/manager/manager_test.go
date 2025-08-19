@@ -770,6 +770,13 @@ func TestCDIManagerGetAvailableNums(t *testing.T) {
 			expectedErr:    true,
 			expectedErrMsg: "FM available reserved resources API failed",
 		},
+		{
+			name:           "When available number of fabric devices are in excess of maximum limit",
+			machineUUID:    "00000000-0000-0000-0000-000000000000",
+			modelName:      "LimitExceededDevices",
+			expectedErr:    true,
+			expectedErrMsg: "FM available reserved resources exceeds 128",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

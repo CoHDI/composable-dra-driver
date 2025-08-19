@@ -421,6 +421,9 @@ func (m *CDIManager) getAvailableNums(ctx context.Context, muuid string, modelNa
 	if err != nil {
 		return 0, fmt.Errorf("FM available reserved resources API failed, requestID=%s", client.GetRequestIdFromContext(ctx))
 	}
+	if availableResources.ReservedResourceNum > 128 {
+		return 0, fmt.Errorf("FM available reserved resources exceeds 128, requestID=%s", client.GetRequestIdFromContext(ctx))
+	}
 	slog.Debug("FM available reserved resources API completed successfully", "requestID", client.GetRequestIdFromContext(ctx))
 	return availableResources.ReservedResourceNum, nil
 }

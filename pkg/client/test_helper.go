@@ -220,6 +220,12 @@ var testAvailableReservedResources = map[string][]FMAvailableReservedResources{
 			ReservedResourceNum: 128,
 		},
 	},
+	"LimitExceededDevices": {
+		{
+			FabricID:            1,
+			ReservedResourceNum: 200,
+		},
+	},
 }
 
 var testNodeGroups1 = CMNodeGroups{
@@ -476,6 +482,7 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 				if strings.HasSuffix(r.URL.Path, "/available-reserved-resources") {
 					muuid := strings.TrimSuffix(remainder, "/available-reserved-resources")
 					var response []byte
+					var written bool
 					regex := regexp.MustCompile("^/[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
 					if regex.MatchString(muuid) {
 						index, _ := strconv.Atoi(string(muuid[len(muuid)-1]))
@@ -497,11 +504,14 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 										w.WriteHeader(http.StatusOK)
 										w.Write(response)
 									}
+									if condition.Column == "model" && condition.Operator == "eq" && condition.Value == "LimitExceededDevices" {
+										written = writeResponse(w, http.StatusOK, testAvailableReservedResources["LimitExceededDevices"][0])
+									}
 								}
 							}
 						}
 					}
-					if len(response) == 0 {
+					if len(response) == 0 && !written {
 						unSuccess := unsuccessfulResponse{
 							Detail: responseDetail{
 								Message: "FM available reserved resources API is failed",
@@ -627,4 +637,12 @@ func CreateTLSServer(t testing.TB) (*httptest.Server, string) {
 	}
 	server.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
 	return server, caCertData.CertPem
+}
+
+func writeResponse(w http.ResponseWriter, status int, response interface{}) bool {
+	resByte, _ := json.Marshal(response)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(resByte)
+	return true
 }
