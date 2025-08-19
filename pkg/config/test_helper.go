@@ -106,41 +106,6 @@ type TestSpec struct {
 
 func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 	switch devInfoCase {
-	case CaseDevInfoCorrect:
-		devInfo0 := DeviceInfo{
-			Index:        1,
-			CDIModelName: "DEVICE 1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-			DriverName:        "test-driver-1",
-			K8sDeviceName:     "test-device-1",
-			CanNotCoexistWith: []int{2, 3},
-		}
-		devInfo1 := DeviceInfo{
-			Index:        2,
-			CDIModelName: "DEVICE 2",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 2",
-			},
-			DriverName:        "test-driver-1",
-			K8sDeviceName:     "test-device-2",
-			CanNotCoexistWith: []int{1, 3},
-		}
-		devInfo2 := DeviceInfo{
-			Index:        3,
-			CDIModelName: "DEVICE 3",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 3",
-			},
-			DriverName:        "test-driver-2",
-			K8sDeviceName:     "test-device-3",
-			CanNotCoexistWith: []int{1, 2},
-		}
-
-		devInfos := []DeviceInfo{devInfo0, devInfo1, devInfo2}
-
-		return devInfos
 	case CaseDevInfoIndexMinus:
 		devInfo := DeviceInfo{
 			Index:         -1,
@@ -509,7 +474,40 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 		devInfos := []DeviceInfo{devInfo}
 		return devInfos
 	default:
-		return nil
+		devInfo0 := DeviceInfo{
+			Index:        1,
+			CDIModelName: "DEVICE 1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
+			DriverName:        "test-driver-1",
+			K8sDeviceName:     "test-device-1",
+			CanNotCoexistWith: []int{2, 3},
+		}
+		devInfo1 := DeviceInfo{
+			Index:        2,
+			CDIModelName: "DEVICE 2",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 2",
+			},
+			DriverName:        "test-driver-1",
+			K8sDeviceName:     "test-device-2",
+			CanNotCoexistWith: []int{1, 3},
+		}
+		devInfo2 := DeviceInfo{
+			Index:        3,
+			CDIModelName: "DEVICE 3",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 3",
+			},
+			DriverName:        "test-driver-2",
+			K8sDeviceName:     "test-device-3",
+			CanNotCoexistWith: []int{1, 2},
+		}
+
+		devInfos := []DeviceInfo{devInfo0, devInfo1, devInfo2}
+
+		return devInfos
 	}
 }
 
@@ -522,7 +520,7 @@ func CreateLabelPrefix(labelPrefixCase int) string {
 	case CaseLabelPrefixInvalid:
 		return "-cohdi.com"
 	default:
-		return ""
+		return "cohdi.com"
 	}
 }
 
@@ -572,8 +570,8 @@ func CreateConfigMap() ([]*corev1.ConfigMap, error) {
 
 	cms := []*corev1.ConfigMap{cm0, cm1, cm2}
 
-	for devInfoCase := CaseDevInfoIndexMinus; devInfoCase <= CaseDevInfoDuplicateDevice; devInfoCase++ {
-		deviceInfos := CreateDeviceInfos(devInfoCase)
+	for caseNum := CaseDevInfoIndexMinus; caseNum <= CaseLabelPrefixInvalid; caseNum++ {
+		deviceInfos := CreateDeviceInfos(caseNum)
 		data, err := yaml.Marshal(deviceInfos)
 		if err != nil {
 			return nil, err
@@ -583,27 +581,12 @@ func CreateConfigMap() ([]*corev1.ConfigMap, error) {
 				Kind: "ConfigMap",
 			},
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      fmt.Sprintf("test-configmap-%d", devInfoCase),
+				Name:      fmt.Sprintf("test-configmap-%d", caseNum),
 				Namespace: "composable-dra",
 			},
 			Data: map[string]string{
-				DeviceInfoKey: string(data),
-			},
-		}
-		cms = append(cms, cm)
-	}
-	for labelPrefixCase := CaseLabelPrefix100B; labelPrefixCase <= CaseLabelPrefixInvalid; labelPrefixCase++ {
-		cm := &corev1.ConfigMap{
-			TypeMeta: metav1.TypeMeta{
-				Kind: "ConfigMap",
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      fmt.Sprintf("test-configmap-%d", labelPrefixCase),
-				Namespace: "composable-dra",
-			},
-			Data: map[string]string{
-				DeviceInfoKey:  string(data0),
-				LabelPrefixKey: CreateLabelPrefix(labelPrefixCase),
+				DeviceInfoKey:  string(data),
+				LabelPrefixKey: CreateLabelPrefix(caseNum),
 			},
 		}
 		cms = append(cms, cm)

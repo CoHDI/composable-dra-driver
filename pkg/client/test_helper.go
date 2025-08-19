@@ -33,7 +33,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -50,8 +49,6 @@ const (
 
 	clusterID1 = "00000000-0000-0000-0001-000000000000"
 )
-
-var deviceList = []string{"DEVICE 1", "DEVICE 2", "DEVICE 3"}
 
 func createTestServerCertificate(caCertData config.CertData) (certPEMBlock, keyPEMBlock []byte, err error) {
 	privateServerKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -422,10 +419,7 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 		targetString := "client_id=0001&client_secret=secret&username=user&password=pass&scope=openid&response=id_token token&grant_type=password"
 		if string(body) == targetString {
 			if r.URL.Path == "/id_manager/realms/CDI_DRA_Test/protocol/openid-connect/token" {
-				response, _ := json.Marshal(testIMToken)
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(response))
+				_ = writeResponse(w, http.StatusOK, testIMToken)
 			}
 			if r.URL.Path == "/id_manager/realms/Nil_Test/protocol/openid-connect/token" {
 				w.Header().Set("Content-Type", "application/json")
@@ -435,10 +429,7 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 				expiry := time.Now().Add(35 * time.Second)
 				timeTestIMToken := testIMToken
 				timeTestIMToken.AccessToken = "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"exp":%d}`, expiry.Unix())))
-				response, _ := json.Marshal(timeTestIMToken)
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(response))
+				_ = writeResponse(w, http.StatusOK, timeTestIMToken)
 			} else {
 				w.WriteHeader(http.StatusNotFound)
 			}
@@ -455,24 +446,15 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 				remainder := strings.TrimPrefix(r.URL.Path, "/fabric_manager/api/v1/machines")
 				if remainder == "" {
 					for key, value := range r.URL.Query() {
-						var response []byte
 						if key == "tenant_uuid" && value[0] == tenantID1 {
-							response, _ = json.Marshal(testMachineList1)
+							_ = writeResponse(w, http.StatusOK, testMachineList1)
 						}
 						if key == "tenant_uuid" && value[0] == tenantID2 {
-							response, _ = json.Marshal(testMachineList2)
-						}
-						if len(response) > 0 {
-							w.Header().Set("Content-Type", "application/json")
-							w.WriteHeader(http.StatusOK)
-							w.Write(response)
+							_ = writeResponse(w, http.StatusOK, testMachineList2)
 						}
 						if key == "tenant_uuid" && value[0] == tenantIDTimeOut {
 							time.Sleep(65 * time.Second)
-							response, _ := json.Marshal(testMachineList1)
-							w.Header().Set("Content-Type", "application/json")
-							w.WriteHeader(http.StatusOK)
-							w.Write(response)
+							_ = writeResponse(w, http.StatusOK, testMachineList1)
 						}
 						if key == "tenant_uuid" && value[0] == tenantIDNotFound {
 							w.WriteHeader(http.StatusNotFound)
@@ -481,7 +463,6 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 				}
 				if strings.HasSuffix(r.URL.Path, "/available-reserved-resources") {
 					muuid := strings.TrimSuffix(remainder, "/available-reserved-resources")
-					var response []byte
 					var written bool
 					regex := regexp.MustCompile("^/[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
 					if regex.MatchString(muuid) {
@@ -492,35 +473,26 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 							if value, exist := query["res_type"]; exist && value[0] == "gpu" {
 								if value, exist := query["condition"]; exist {
 									_ = json.Unmarshal([]byte(value[0]), &condition)
-									if condition.Column == "model" && condition.Operator == "eq" && slices.Contains(deviceList, condition.Value) {
-										response, _ = json.Marshal(testAvailableReservedResources[condition.Value][(index)%3])
-										w.Header().Set("Content-Type", "application/json")
-										w.WriteHeader(http.StatusOK)
-										w.Write(response)
-									}
-									if condition.Column == "model" && condition.Operator == "eq" && condition.Value == config.FullLengthModel {
-										response, _ = json.Marshal(testAvailableReservedResources[condition.Value][0])
-										w.Header().Set("Content-Type", "application/json")
-										w.WriteHeader(http.StatusOK)
-										w.Write(response)
-									}
-									if condition.Column == "model" && condition.Operator == "eq" && condition.Value == "LimitExceededDevices" {
-										written = writeResponse(w, http.StatusOK, testAvailableReservedResources["LimitExceededDevices"][0])
+									if condition.Column == "model" && condition.Operator == "eq" {
+										if resources, exist := testAvailableReservedResources[condition.Value]; exist {
+											if len(resources) > 1 {
+												written = writeResponse(w, http.StatusOK, resources[(index)%3])
+											} else {
+												written = writeResponse(w, http.StatusOK, resources[0])
+											}
+										}
 									}
 								}
 							}
 						}
 					}
-					if len(response) == 0 && !written {
+					if !written {
 						unSuccess := unsuccessfulResponse{
 							Detail: responseDetail{
 								Message: "FM available reserved resources API is failed",
 							},
 						}
-						response, _ = json.Marshal(unSuccess)
-						w.Header().Set("Content-Type", "application/json")
-						w.WriteHeader(http.StatusNotFound)
-						w.Write(response)
+						writeResponse(w, http.StatusNotFound, unSuccess)
 					}
 				}
 			}
@@ -540,45 +512,33 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 					if len(tenantId) != 0 {
 						if strings.HasSuffix(remainder, "/nodegroups") {
 							clusterId := strings.TrimSuffix(remainder, "/nodegroups")
-							var response []byte
 							if tenantId == tenantID1 {
 								if clusterId == "/"+clusterID1 {
-									response, _ = json.Marshal(testNodeGroups1)
+									_ = writeResponse(w, http.StatusOK, testNodeGroups1)
 								}
 							}
 							if tenantId == tenantID2 {
 								if clusterId == "/"+clusterID1 {
-									response, _ = json.Marshal(testNodeGroups2)
+									_ = writeResponse(w, http.StatusOK, testNodeGroups2)
 								}
-							}
-							if len(response) > 0 {
-								w.Header().Set("Content-Type", "application/json")
-								w.WriteHeader(http.StatusOK)
-								w.Write(response)
 							}
 						} else {
 							ngId := strings.TrimPrefix(remainder, "/"+clusterID1+"/nodegroups")
-							var response []byte
 							if tenantId == tenantID1 {
 								if ngId == "/10000000-0000-0000-0000-000000000000" {
-									response, _ = json.Marshal(testNodeGroupInfos1[0])
+									_ = writeResponse(w, http.StatusOK, testNodeGroupInfos1[0])
 								}
 							}
 							if tenantId == tenantID2 {
 								if ngId == "/10000000-0000-0000-0000-000000000000" {
-									response, _ = json.Marshal(testNodeGroupInfos2[0])
+									_ = writeResponse(w, http.StatusOK, testNodeGroupInfos2[0])
 								}
 								if ngId == "/20000000-0000-0000-0000-000000000000" {
-									response, _ = json.Marshal(testNodeGroupInfos2[1])
+									_ = writeResponse(w, http.StatusOK, testNodeGroupInfos2[1])
 								}
 								if ngId == "/30000000-0000-0000-0000-000000000000" {
-									response, _ = json.Marshal(testNodeGroupInfos2[2])
+									_ = writeResponse(w, http.StatusOK, testNodeGroupInfos2[2])
 								}
-							}
-							if len(response) > 0 {
-								w.Header().Set("Content-Type", "application/json")
-								w.WriteHeader(http.StatusOK)
-								w.Write(response)
 							}
 						}
 					}
@@ -598,19 +558,13 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 					r := regexp.MustCompile("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
 					if r.MatchString(muuid) {
 						index, _ := strconv.Atoi(string(muuid[len(muuid)-1]))
-						var response []byte
 						if tenantId == tenantID1 {
-							response, _ = json.Marshal(testNodeDetails1)
+							_ = writeResponse(w, http.StatusOK, testNodeDetails1)
 						}
 						if tenantId == tenantID2 {
 							if index <= len(testNodeDetails2) {
-								response, _ = json.Marshal(testNodeDetails2[index])
+								_ = writeResponse(w, http.StatusOK, testNodeDetails2[index])
 							}
-						}
-						if len(response) > 0 {
-							w.Header().Set("Content-Type", "application/json")
-							w.WriteHeader(http.StatusOK)
-							w.Write(response)
 						}
 					}
 				}
