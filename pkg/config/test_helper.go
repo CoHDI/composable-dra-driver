@@ -69,11 +69,19 @@ const (
 	CaseDevInfoDuplicateIndex
 	CaseDevInfoDuplicateModel
 	CaseDevInfoDuplicateDevice
+	CaseDevInfoModelSymbol
+	CaseDevInfoFullLength
 
 	CaseLabelPrefix100B
 	CaseLabelPrefix101B
 	CaseLabelPrefixInvalid
 )
+
+var FullLengthModel string = RandomString(1000)
+var FullLengthAttrKey string = RandomString(63) + "/" + RandomString(32)
+var FullLengthAttrValue string = RandomString(64)
+var FullLengthDriverName string = RandomString(63)
+var FullLengthDeviceName string = RandomString(50)
 
 var ExceededSecretInfo string = RandomString(1000)
 var UnExceededSecretInfo string = RandomString(999)
@@ -471,6 +479,34 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 			},
 		}
 		devInfos := []DeviceInfo{devInfo1, devInfo2}
+		return devInfos
+	case CaseDevInfoModelSymbol:
+		devInfo := DeviceInfo{
+			Index:         1,
+			CDIModelName:  "TEST_-/+.()#:*@_DEVICE",
+			DriverName:    "test-driver-1",
+			K8sDeviceName: "test-device-1",
+			DRAAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
+		}
+		devInfos := []DeviceInfo{devInfo}
+		return devInfos
+	case CaseDevInfoFullLength:
+		devInfo := DeviceInfo{
+			Index:         10000,
+			CDIModelName:  FullLengthModel,
+			DriverName:    FullLengthDriverName,
+			K8sDeviceName: FullLengthDeviceName,
+			DRAAttributes: map[string]string{
+				"productName":     "TEST DEVICE 1",
+				FullLengthAttrKey: FullLengthAttrValue,
+			},
+		}
+		for i := 0; i < 30; i++ {
+			devInfo.DRAAttributes[strconv.Itoa(i)] = "attribute-" + strconv.Itoa(i)
+		}
+		devInfos := []DeviceInfo{devInfo}
 		return devInfos
 	default:
 		return nil

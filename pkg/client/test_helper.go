@@ -214,6 +214,12 @@ var testAvailableReservedResources = map[string][]FMAvailableReservedResources{
 			ReservedResourceNum: 7,
 		},
 	},
+	config.FullLengthModel: {
+		{
+			FabricID:            1,
+			ReservedResourceNum: 128,
+		},
+	},
 }
 
 var testNodeGroups1 = CMNodeGroups{
@@ -363,6 +369,20 @@ func createTestNodeDetails(nodeCount int) []CMNodeDetails {
 									},
 								},
 							},
+							{
+								Type: "gpu",
+								Selector: CMSelector{
+									Expression: CMExpression{
+										Conditions: []Condition{
+											{
+												Column:   "model",
+												Operator: "eq",
+												Value:    config.FullLengthModel,
+											},
+										},
+									},
+								},
+							},
 						},
 					},
 				},
@@ -467,6 +487,12 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 									_ = json.Unmarshal([]byte(value[0]), &condition)
 									if condition.Column == "model" && condition.Operator == "eq" && slices.Contains(deviceList, condition.Value) {
 										response, _ = json.Marshal(testAvailableReservedResources[condition.Value][(index)%3])
+										w.Header().Set("Content-Type", "application/json")
+										w.WriteHeader(http.StatusOK)
+										w.Write(response)
+									}
+									if condition.Column == "model" && condition.Operator == "eq" && condition.Value == config.FullLengthModel {
+										response, _ = json.Marshal(testAvailableReservedResources[condition.Value][0])
 										w.Header().Set("Content-Type", "application/json")
 										w.WriteHeader(http.StatusOK)
 										w.Write(response)

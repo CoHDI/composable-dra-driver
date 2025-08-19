@@ -191,6 +191,7 @@ func TestCDIClientGetFMAvailableReservedResources(t *testing.T) {
 		machineUUID                        string
 		deviceModel                        string
 		expectedErr                        bool
+		expectedErrMsg                     string
 		expectedAvailableReservedResources *FMAvailableReservedResources
 	}{
 		{
@@ -203,6 +204,14 @@ func TestCDIClientGetFMAvailableReservedResources(t *testing.T) {
 				FabricID:            1,
 				ReservedResourceNum: 2,
 			},
+		},
+		{
+			name:           "When device model has symbol",
+			tenantId:       "00000000-0000-0001-0000-000000000000",
+			machineUUID:    "00000000-0000-0000-0000-000000000000",
+			deviceModel:    "TEST_-/+.()#:*@_DEVICE",
+			expectedErr:    true,
+			expectedErrMsg: "received unsuccessful response: FM available reserved resources API is failed",
 		},
 	}
 
@@ -217,6 +226,9 @@ func TestCDIClientGetFMAvailableReservedResources(t *testing.T) {
 			if tc.expectedErr {
 				if err == nil {
 					t.Errorf("expected error, but got none")
+				}
+				if err != nil && err.Error() != tc.expectedErrMsg {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
 				if err != nil {

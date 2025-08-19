@@ -55,6 +55,7 @@ const (
 const (
 	CaseDriverResourceCorrect = iota
 	CaseDriverResourceEmpty
+	CaseDriverResourceFullLength
 )
 
 const (
@@ -119,6 +120,10 @@ func createTestDriverResources(caseDriverResource int) map[string]*resourceslice
 			Pools: make(map[string]resourceslice.Pool),
 		}
 		ndr["test-driver-2"] = &resourceslice.DriverResources{
+			Pools: make(map[string]resourceslice.Pool),
+		}
+	case CaseDriverResourceFullLength:
+		ndr[config.FullLengthDriverName] = &resourceslice.DriverResources{
 			Pools: make(map[string]resourceslice.Pool),
 		}
 	}
@@ -295,6 +300,17 @@ func createTestControllers(t testing.TB, kubeClitent kubernetes.Interface) map[s
 	if err != nil {
 		t.Fatalf("failed to start resourceslice controller: %v", err)
 	}
+	options3 := resourceslice.Options{
+		DriverName: config.FullLengthDriverName,
+		KubeClient: kubeClitent,
+		Resources: &resourceslice.DriverResources{
+			Pools: make(map[string]resourceslice.Pool),
+		},
+	}
+	controlles[config.FullLengthDriverName], err = resourceslice.StartController(context.Background(), options3)
+	if err != nil {
+		t.Fatalf("failed to start resourceslice controller: %v", err)
+	}
 
 	return controlles
 }
@@ -407,13 +423,15 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 		useCM                    bool
 		nodeName                 string
 		caseDevInfo              int
+		caseDriverResource       int
 		deletedAnnotationBmh     []string
 		expectedErr              bool
 		expectedErrMsg           string
 		expectedPoolName         string
 		expectedDriverName       string
 		expectedDeviceName       string
-		expectedProductName      string
+		expectedAttributes       map[string]string
+		expectedAttributeFactors int
 		expectedBCFailure        []string
 		expectedAvailableDevices int
 		expectedResourceSliceNum int
@@ -425,6 +443,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 			name:                     "When the loop is done successfully with USE_CM/USE_CAPI_BMH is false",
 			useCapiBmh:               false,
 			useCM:                    false,
+			caseDriverResource:       CaseDriverResourceEmpty,
 			nodeName:                 "test-node-0",
 			expectedResourceSliceNum: 9,
 			expectedPoolName:         "test-device-1-fabric1",
@@ -432,15 +451,18 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 			expectedFabric:           "1",
 			expectedDeviceName:       "test-device-1",
 			expectedDriverName:       "test-driver-1",
-			expectedProductName:      "TEST DEVICE 1",
-			expectedBCFailure:        []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
-			expectedMaxDevice:        "",
-			expectedMinDevice:        "",
+			expectedAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
+			expectedBCFailure: []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
+			expectedMaxDevice: "",
+			expectedMinDevice: "",
 		},
 		{
 			name:               "When the loop is done successfully with USE_CM/USE_CAPI_BMH is true",
 			useCapiBmh:         true,
 			useCM:              true,
+			caseDriverResource: CaseDriverResourceEmpty,
 			nodeName:           "test-node-0",
 			expectedDeviceName: "test-device-1",
 			expectedFabric:     "1",
@@ -451,6 +473,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 			name:                     "When some BMH have no machine uuid",
 			useCapiBmh:               true,
 			useCM:                    true,
+			caseDriverResource:       CaseDriverResourceEmpty,
 			deletedAnnotationBmh:     []string{"test-bmh-0", "test-bmh-3", "test-bmh-6"},
 			nodeName:                 "test-node-0",
 			expectedDeviceName:       "test-device-2",
@@ -461,16 +484,49 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 			expectedAvailableDevices: 5,
 			expectedPoolName:         "test-device-2-fabric2",
 			expectedDriverName:       "test-driver-1",
-			expectedProductName:      "TEST DEVICE 2",
-			expectedBCFailure:        []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
+			expectedAttributes: map[string]string{
+				"productName": "TEST DEVICE 2",
+			},
+			expectedBCFailure: []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
 		},
 		{
 			name:                 "When all BMHs have no machine uuid",
 			useCapiBmh:           true,
 			useCM:                true,
+			caseDriverResource:   CaseDriverResourceEmpty,
 			deletedAnnotationBmh: []string{"ALL"},
 			expectedErr:          true,
 			expectedErrMsg:       "not any machine uuid is found",
+		},
+		{
+			name:               "When cdi-model-name includes symbol",
+			useCapiBmh:         false,
+			useCM:              false,
+			caseDevInfo:        config.CaseDevInfoModelSymbol,
+			caseDriverResource: CaseDriverResourceEmpty,
+			expectedErr:        true,
+			expectedErrMsg:     "FM available reserved resources API failed",
+		},
+		{
+			name:                     "When DeviceInfo has factors with full length name",
+			useCapiBmh:               true,
+			useCM:                    true,
+			nodeName:                 "test-node-8",
+			caseDevInfo:              config.CaseDevInfoFullLength,
+			caseDriverResource:       CaseDriverResourceFullLength,
+			expectedResourceSliceNum: 3,
+			expectedPoolName:         "test-device-1-fabric1",
+			expectedAvailableDevices: 128,
+			expectedFabric:           "3",
+			expectedDeviceName:       config.FullLengthDeviceName,
+			expectedDriverName:       config.FullLengthDriverName,
+			expectedAttributes: map[string]string{
+				config.FullLengthAttrKey: config.FullLengthAttrValue,
+			},
+			expectedAttributeFactors: 32,
+			expectedBCFailure:        []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
+			expectedMaxDevice:        "12",
+			expectedMinDevice:        "3",
 		},
 	}
 	for _, tc := range testCases {
@@ -480,7 +536,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 				UseCM:              tc.useCM,
 				DRAenabled:         true,
 				CaseDeviceInfo:     tc.caseDevInfo,
-				CaseDriverResource: CaseDriverResourceEmpty,
+				CaseDriverResource: tc.caseDriverResource,
 			}
 			m, server, stop := createTestManager(t, testSpec)
 			defer server.Close()
@@ -550,9 +606,16 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 						for _, device := range resourceslice.Spec.Devices {
 							if len(tc.expectedDeviceName) > 0 && device.Name == tc.expectedDeviceName+"-gpu0" {
 								deviceFound = true
-								productName := device.Attributes["productName"]
-								if productName.StringValue != nil && len(tc.expectedProductName) > 0 && *productName.StringValue != tc.expectedProductName {
-									t.Errorf("unexpected ProductName, expected %s but got %s", tc.expectedProductName, *productName.StringValue)
+								for expectedKey, expectedValue := range tc.expectedAttributes {
+									value := device.Attributes[resourceapi.QualifiedName(expectedKey)]
+									if value.StringValue != nil && len(expectedKey) > 0 && *value.StringValue != expectedValue {
+										t.Errorf("unexpected ProductName, expected %s but got %s", expectedValue, *value.StringValue)
+									}
+								}
+								if tc.expectedAttributeFactors > 0 {
+									if len(device.Attributes) != tc.expectedAttributeFactors {
+										t.Errorf("unexpected attributes length, expected %d but got %d", tc.expectedAttributeFactors, len(device.Attributes))
+									}
 								}
 								for _, expectedBCFailure := range tc.expectedBCFailure {
 									var found bool
