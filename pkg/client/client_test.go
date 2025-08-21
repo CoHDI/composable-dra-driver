@@ -35,12 +35,18 @@ import (
 	"k8s.io/utils/ptr"
 )
 
+const (
+	NotFoundTenantId      = "00000000-0000-0404-0000-000000000000"
+	NotFoundClusterId     = "00000000-0000-0000-0404-000000000000"
+	NotFoundNodeGroupUUID = "40400000-0000-0000-0000-000000000000"
+)
+
 func init() {
 	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
 	slog.SetDefault(slog.New(handler))
 }
 
-func buildTestCDIClient(t testing.TB, tenantID string, clusterID string) (*CDIClient, *httptest.Server, ku.TestControllerShutdownFunc) {
+func buildTestCDIClient(t testing.TB, spec config.TestSpec) (*CDIClient, *httptest.Server, ku.TestControllerShutdownFunc) {
 	server, certPem := CreateTLSServer(t)
 	server.StartTLS()
 	parsedURL, err := url.Parse(server.URL)
@@ -56,8 +62,8 @@ func buildTestCDIClient(t testing.TB, tenantID string, clusterID string) (*CDICl
 	controllers, stop := ku.CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
 	config := &config.Config{
 		CDIEndpoint: parsedURL.Host,
-		TenantID:    tenantID,
-		ClusterID:   clusterID,
+		TenantID:    spec.TenantID,
+		ClusterID:   spec.ClusterID,
 	}
 	client, err := BuildCDIClient(config, controllers)
 	if err != nil {
@@ -104,9 +110,11 @@ func TestCDIClientGetIMToken(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			tenantID := "00000000-0000-0001-0000-000000000000"
-			clusterID := "00000000-0000-0000-0001-000000000000"
-			client, server, stop := buildTestCDIClient(t, tenantID, clusterID)
+			testSpec := config.TestSpec{
+				TenantID:  "00000000-0000-0001-0000-000000000000",
+				ClusterID: "00000000-0000-0000-0001-000000000000",
+			}
+			client, server, stop := buildTestCDIClient(t, testSpec)
 			defer stop()
 			defer server.Close()
 
@@ -142,12 +150,16 @@ func TestCDIClientGetFMMachineList(t *testing.T) {
 	testCases := []struct {
 		name                string
 		tenantId            string
+		tokenCached         bool
+		host                string
 		expectedErr         bool
+		expectedErrMsg      string
 		expectedMachineList *FMMachineList
 	}{
 		{
 			name:        "When correct FM machine list obtained as expected",
 			tenantId:    "00000000-0000-0001-0000-000000000000",
+			tokenCached: false,
 			expectedErr: false,
 			expectedMachineList: &FMMachineList{
 				Data: FMMachines{
@@ -160,17 +172,55 @@ func TestCDIClientGetFMMachineList(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:           "When token publishing is failed",
+			tokenCached:    false,
+			host:           "no-such.invalid",
+			expectedErr:    true,
+			expectedErrMsg: "no such host",
+		},
+		{
+			name:        "When host is invalid",
+			tenantId:    "00000000-0000-0001-0000-000000000000",
+			tokenCached: true,
+			host:        "[::1]:namedport",
+			expectedErr: true,
+		},
+		{
+			name:           "When Do request fails by DNS failure",
+			tenantId:       "00000000-0000-0001-0000-000000000000",
+			tokenCached:    true,
+			host:           "no-such.invalid",
+			expectedErr:    true,
+			expectedErrMsg: "no such host",
+		},
+		{
+			name:           "When not found error is returned",
+			tenantId:       NotFoundTenantId,
+			tokenCached:    false,
+			expectedErr:    true,
+			expectedErrMsg: "received unsuccessful response",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			clusterID := "00000000-0000-0000-0001-000000000000"
-			client, server, stop := buildTestCDIClient(t, tc.tenantId, clusterID)
+			testSpec := config.TestSpec{
+				TenantID:  tc.tenantId,
+				ClusterID: "00000000-0000-0000-0001-000000000000",
+			}
+			client, server, stop := buildTestCDIClient(t, testSpec)
 			defer stop()
 			defer server.Close()
+			cachedToken(t, client, tc.tokenCached)
+			changeHost(client, tc.host)
+
 			mList, err := client.GetFMMachineList(context.Background())
 			if tc.expectedErr {
 				if err == nil {
 					t.Errorf("expected error, but got none")
+				}
+				if len(tc.expectedErrMsg) > 0 && err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error messeage, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
 				if err != nil {
@@ -188,6 +238,8 @@ func TestCDIClientGetFMAvailableReservedResources(t *testing.T) {
 	testCases := []struct {
 		name                               string
 		tenantId                           string
+		tokenCached                        bool
+		host                               string
 		machineUUID                        string
 		deviceModel                        string
 		expectedErr                        bool
@@ -197,6 +249,7 @@ func TestCDIClientGetFMAvailableReservedResources(t *testing.T) {
 		{
 			name:        "When correct FM available reserved resource num is obtained as expected",
 			tenantId:    "00000000-0000-0001-0000-000000000000",
+			tokenCached: false,
 			machineUUID: "00000000-0000-0000-0000-000000000000",
 			deviceModel: "DEVICE 1",
 			expectedErr: false,
@@ -208,26 +261,61 @@ func TestCDIClientGetFMAvailableReservedResources(t *testing.T) {
 		{
 			name:           "When device model has symbol",
 			tenantId:       "00000000-0000-0001-0000-000000000000",
+			tokenCached:    false,
 			machineUUID:    "00000000-0000-0000-0000-000000000000",
 			deviceModel:    "TEST_-/+.()#:*@_DEVICE",
 			expectedErr:    true,
 			expectedErrMsg: "received unsuccessful response: FM available reserved resources API is failed",
 		},
+		{
+			name:           "When token publishing is failed",
+			tenantId:       "00000000-0000-0001-0000-000000000000",
+			tokenCached:    false,
+			host:           "no-such.invalid",
+			machineUUID:    "00000000-0000-0000-0000-000000000000",
+			deviceModel:    "DEVICE 1",
+			expectedErr:    true,
+			expectedErrMsg: "no such host",
+		},
+		{
+			name:        "When host is invalid",
+			tenantId:    "00000000-0000-0001-0000-000000000000",
+			tokenCached: true,
+			host:        "[::1]:namedport",
+			machineUUID: "00000000-0000-0000-0000-000000000000",
+			deviceModel: "DEVICE 1",
+			expectedErr: true,
+		},
+		{
+			name:           "When Do request fails by DNS failure",
+			tenantId:       "00000000-0000-0001-0000-000000000000",
+			tokenCached:    true,
+			host:           "no-such.invalid",
+			machineUUID:    "00000000-0000-0001-0000-000000000000",
+			deviceModel:    "DEVICE 1",
+			expectedErr:    true,
+			expectedErrMsg: "no such host",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			clusterID := "00000000-0000-0000-0001-000000000000"
-			client, server, stop := buildTestCDIClient(t, tc.tenantId, clusterID)
+			testSpec := config.TestSpec{
+				TenantID:  tc.tenantId,
+				ClusterID: "00000000-0000-0000-0001-000000000000",
+			}
+			client, server, stop := buildTestCDIClient(t, testSpec)
 			defer stop()
 			defer server.Close()
+			cachedToken(t, client, tc.tokenCached)
+			changeHost(client, tc.host)
 
 			avaialbleNum, err := client.GetFMAvailableReservedResources(context.Background(), tc.machineUUID, tc.deviceModel)
 			if tc.expectedErr {
 				if err == nil {
 					t.Errorf("expected error, but got none")
 				}
-				if err != nil && err.Error() != tc.expectedErrMsg {
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
 					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
@@ -247,7 +335,10 @@ func TestCDIClientGetCMNodeGroups(t *testing.T) {
 		name               string
 		tenantId           string
 		clusterId          string
+		tokenCached        bool
+		host               string
 		expectedErr        bool
+		expectedErrMsg     string
 		expectedNodeGroups *CMNodeGroups
 	}{
 		{
@@ -264,18 +355,61 @@ func TestCDIClientGetCMNodeGroups(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:           "When token publishing is failed",
+			tenantId:       "00000000-0000-0001-0000-000000000000",
+			clusterId:      "00000000-0000-0000-0001-000000000000",
+			tokenCached:    false,
+			host:           "no-such.invalid",
+			expectedErr:    true,
+			expectedErrMsg: "no such host",
+		},
+		{
+			name:        "When host is invalid",
+			tenantId:    "00000000-0000-0001-0000-000000000000",
+			clusterId:   "00000000-0000-0000-0001-000000000000",
+			tokenCached: true,
+			host:        "[::1]:namedport",
+			expectedErr: true,
+		},
+		{
+			name:           "When Do request fails by DNS failure",
+			tenantId:       "00000000-0000-0001-0000-000000000000",
+			clusterId:      "00000000-0000-0000-0001-000000000000",
+			tokenCached:    true,
+			host:           "no-such.invalid",
+			expectedErr:    true,
+			expectedErrMsg: "no such host",
+		},
+		{
+			name:           "When not found error is returned",
+			tenantId:       "00000000-0000-0001-0000-000000000000",
+			clusterId:      NotFoundClusterId,
+			tokenCached:    false,
+			expectedErr:    true,
+			expectedErrMsg: "received unsuccessful response",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			client, server, stop := buildTestCDIClient(t, tc.tenantId, tc.clusterId)
+			testSpec := config.TestSpec{
+				TenantID:  tc.tenantId,
+				ClusterID: tc.clusterId,
+			}
+			client, server, stop := buildTestCDIClient(t, testSpec)
 			defer stop()
 			defer server.Close()
+			cachedToken(t, client, tc.tokenCached)
+			changeHost(client, tc.host)
 
 			nodeGroups, err := client.GetCMNodeGroups(context.Background())
 			if tc.expectedErr {
 				if err == nil {
 					t.Errorf("expected error, but got none")
+				}
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
 				if err != nil {
@@ -295,7 +429,10 @@ func TestCDIClientGetCMNodeGroupInfo(t *testing.T) {
 		tenantId              string
 		clusterId             string
 		nodeGroupUUID         string
+		tokenCached           bool
+		host                  string
 		expectedErr           bool
+		expectedErrMsg        string
 		expectedNodeGroupInfo *CMNodeGroupInfo
 	}{
 		{
@@ -312,13 +449,57 @@ func TestCDIClientGetCMNodeGroupInfo(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:           "When token publishing is failed",
+			tenantId:       "00000000-0000-0001-0000-000000000000",
+			clusterId:      "00000000-0000-0000-0001-000000000000",
+			nodeGroupUUID:  "10000000-0000-0000-0000-000000000000",
+			tokenCached:    false,
+			host:           "no-such.invalid",
+			expectedErr:    true,
+			expectedErrMsg: "no such host",
+		},
+		{
+			name:          "When host is invalid",
+			tenantId:      "00000000-0000-0001-0000-000000000000",
+			clusterId:     "00000000-0000-0000-0001-000000000000",
+			nodeGroupUUID: "10000000-0000-0000-0000-000000000000",
+			tokenCached:   true,
+			host:          "[::1]:namedport",
+			expectedErr:   true,
+		},
+		{
+			name:           "When Do request fails by DNS failure",
+			tenantId:       "00000000-0000-0001-0000-000000000000",
+			clusterId:      "00000000-0000-0000-0001-000000000000",
+			nodeGroupUUID:  "10000000-0000-0000-0000-000000000000",
+			tokenCached:    true,
+			host:           "no-such.invalid",
+			expectedErr:    true,
+			expectedErrMsg: "no such host",
+		},
+		{
+			name:           "When not found error is returned",
+			tenantId:       "00000000-0000-0001-0000-000000000000",
+			clusterId:      "00000000-0000-0000-0001-000000000000",
+			nodeGroupUUID:  NotFoundNodeGroupUUID,
+			tokenCached:    false,
+			expectedErr:    true,
+			expectedErrMsg: "received unsuccessful response",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			client, server, stop := buildTestCDIClient(t, tc.tenantId, tc.clusterId)
+			testSpec := config.TestSpec{
+				TenantID:  tc.tenantId,
+				ClusterID: tc.clusterId,
+			}
+			client, server, stop := buildTestCDIClient(t, testSpec)
 			defer stop()
 			defer server.Close()
+			cachedToken(t, client, tc.tokenCached)
+			changeHost(client, tc.host)
 
 			nodeGroup := CMNodeGroup{
 				UUID: tc.nodeGroupUUID,
@@ -327,6 +508,9 @@ func TestCDIClientGetCMNodeGroupInfo(t *testing.T) {
 			if tc.expectedErr {
 				if err == nil {
 					t.Errorf("expected error, but got none")
+				}
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
 				if err != nil {
@@ -346,7 +530,10 @@ func TestCDIClientGetCMNodeDetails(t *testing.T) {
 		tenantId            string
 		clusterId           string
 		machineUUID         string
+		tokenCached         bool
+		host                string
 		expectedErr         bool
+		expectedErrMsg      string
 		expectedNodeDetails *CMNodeDetails
 	}{
 		{
@@ -383,18 +570,65 @@ func TestCDIClientGetCMNodeDetails(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:           "When token publishing is failed",
+			tenantId:       "00000000-0000-0001-0000-000000000000",
+			clusterId:      "00000000-0000-0000-0001-000000000000",
+			machineUUID:    "00000000-0000-0000-0000-000000000000",
+			tokenCached:    false,
+			host:           "no-such.invalid",
+			expectedErr:    true,
+			expectedErrMsg: "no such host",
+		},
+		{
+			name:        "When host is invalid",
+			tenantId:    "00000000-0000-0001-0000-000000000000",
+			clusterId:   "00000000-0000-0000-0001-000000000000",
+			machineUUID: "00000000-0000-0000-0000-000000000000",
+			tokenCached: true,
+			host:        "[::1]:namedport",
+			expectedErr: true,
+		},
+		{
+			name:           "When Do request fails by DNS failure",
+			tenantId:       "00000000-0000-0001-0000-000000000000",
+			clusterId:      "00000000-0000-0000-0001-000000000000",
+			machineUUID:    "00000000-0000-0000-0000-000000000000",
+			tokenCached:    true,
+			host:           "no-such.invalid",
+			expectedErr:    true,
+			expectedErrMsg: "no such host",
+		},
+		{
+			name:           "When not found error is returned",
+			tenantId:       NotFoundTenantId,
+			clusterId:      "00000000-0000-0000-0001-000000000000",
+			machineUUID:    "00000000-0000-0000-0000-000000000000",
+			tokenCached:    false,
+			expectedErr:    true,
+			expectedErrMsg: "received unsuccessful response",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			client, server, stop := buildTestCDIClient(t, tc.tenantId, tc.clusterId)
+			testSpec := config.TestSpec{
+				TenantID:  tc.tenantId,
+				ClusterID: tc.clusterId,
+			}
+			client, server, stop := buildTestCDIClient(t, testSpec)
 			defer stop()
 			defer server.Close()
+			cachedToken(t, client, tc.tokenCached)
+			changeHost(client, tc.host)
 
 			nodeDetails, err := client.GetCMNodeDetails(context.Background(), tc.machineUUID)
 			if tc.expectedErr {
 				if err == nil {
 					t.Errorf("expected error, but got none")
+				}
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
 				if err != nil {
@@ -414,6 +648,7 @@ func TestCDIClientDo(t *testing.T) {
 		name               string
 		nonExistent        string
 		tenantId           string
+		host               string
 		expectedErr        bool
 		expectedErrMsg     string
 		expectedBody       []byte
@@ -437,19 +672,42 @@ func TestCDIClientDo(t *testing.T) {
 			expectedErr:        false,
 			expectedStatusCode: 404,
 		},
+		{
+			name:           "When DNS failure",
+			tenantId:       "00000000-0000-0001-0000-000000000000",
+			host:           "no-such.invalid",
+			expectedErr:    true,
+			expectedErrMsg: "no such host",
+		},
+		{
+			name:           "When connection refused",
+			tenantId:       "00000000-0000-0001-0000-000000000000",
+			host:           "127.0.0.1:54321",
+			expectedErr:    true,
+			expectedErrMsg: "connection refused",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			clusterId := "00000000-0000-0000-0001-000000000000"
-			client, server, stop := buildTestCDIClient(t, tc.tenantId, clusterId)
+			testSpec := config.TestSpec{
+				TenantID:  tc.tenantId,
+				ClusterID: "00000000-0000-0000-0001-000000000000",
+			}
+			client, server, stop := buildTestCDIClient(t, testSpec)
 			defer stop()
 			defer server.Close()
 
-			parsedURL, _ := url.Parse(server.URL)
+			var host string
+			if len(tc.host) > 0 {
+				host = tc.host
+			} else {
+				parsedURL, _ := url.Parse(server.URL)
+				host = parsedURL.Host
+			}
 			url := &url.URL{
 				Scheme: "https",
-				Host:   parsedURL.Host,
+				Host:   host,
 				Path:   "/fabric_manager/api/v1/machines",
 				RawQuery: url.Values{
 					"tenant_uuid": []string{tc.tenantId},
@@ -564,5 +822,21 @@ func TestResultInto(t *testing.T) {
 			}
 		})
 
+	}
+}
+
+func cachedToken(t *testing.T, client *CDIClient, tokenCached bool) {
+	if tokenCached {
+		// cached token
+		_, err := client.TokenSource.Token()
+		if err != nil {
+			t.Fatalf("failed to issue new token")
+		}
+	}
+}
+
+func changeHost(client *CDIClient, host string) {
+	if len(host) > 0 {
+		client.Host = host
 	}
 }

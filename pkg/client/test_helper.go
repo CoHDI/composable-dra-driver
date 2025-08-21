@@ -442,6 +442,7 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == "GET" {
 		if r.Header.Get("Authorization") == fmt.Sprintf("Bearer %s", testAccessToken) {
+			var written bool
 			if strings.HasPrefix(r.URL.Path, "/fabric_manager/api/v1/machines") {
 				remainder := strings.TrimPrefix(r.URL.Path, "/fabric_manager/api/v1/machines")
 				if remainder == "" {
@@ -463,7 +464,6 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 				}
 				if strings.HasSuffix(r.URL.Path, "/available-reserved-resources") {
 					muuid := strings.TrimSuffix(remainder, "/available-reserved-resources")
-					var written bool
 					regex := regexp.MustCompile("^/[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
 					if regex.MatchString(muuid) {
 						index, _ := strconv.Atoi(string(muuid[len(muuid)-1]))
@@ -514,34 +514,43 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 							clusterId := strings.TrimSuffix(remainder, "/nodegroups")
 							if tenantId == tenantID1 {
 								if clusterId == "/"+clusterID1 {
-									_ = writeResponse(w, http.StatusOK, testNodeGroups1)
+									written = writeResponse(w, http.StatusOK, testNodeGroups1)
 								}
 							}
 							if tenantId == tenantID2 {
 								if clusterId == "/"+clusterID1 {
-									_ = writeResponse(w, http.StatusOK, testNodeGroups2)
+									written = writeResponse(w, http.StatusOK, testNodeGroups2)
 								}
 							}
 						} else {
 							ngId := strings.TrimPrefix(remainder, "/"+clusterID1+"/nodegroups")
 							if tenantId == tenantID1 {
 								if ngId == "/10000000-0000-0000-0000-000000000000" {
-									_ = writeResponse(w, http.StatusOK, testNodeGroupInfos1[0])
+									written = writeResponse(w, http.StatusOK, testNodeGroupInfos1[0])
 								}
 							}
 							if tenantId == tenantID2 {
 								if ngId == "/10000000-0000-0000-0000-000000000000" {
-									_ = writeResponse(w, http.StatusOK, testNodeGroupInfos2[0])
+									written = writeResponse(w, http.StatusOK, testNodeGroupInfos2[0])
 								}
 								if ngId == "/20000000-0000-0000-0000-000000000000" {
-									_ = writeResponse(w, http.StatusOK, testNodeGroupInfos2[1])
+									written = writeResponse(w, http.StatusOK, testNodeGroupInfos2[1])
 								}
 								if ngId == "/30000000-0000-0000-0000-000000000000" {
-									_ = writeResponse(w, http.StatusOK, testNodeGroupInfos2[2])
+									written = writeResponse(w, http.StatusOK, testNodeGroupInfos2[2])
 								}
 							}
 						}
 					}
+					if !written {
+						unSuccess := unsuccessfulResponse{
+							Detail: responseDetail{
+								Message: "CM node group list API is failed",
+							},
+						}
+						writeResponse(w, http.StatusNotFound, unSuccess)
+					}
+
 				}
 				if strings.HasPrefix(remainder, "/v3/tenants/") {
 					remainder = strings.TrimPrefix(remainder, "/v3/tenants/")
@@ -559,13 +568,21 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 					if r.MatchString(muuid) {
 						index, _ := strconv.Atoi(string(muuid[len(muuid)-1]))
 						if tenantId == tenantID1 {
-							_ = writeResponse(w, http.StatusOK, testNodeDetails1)
+							written = writeResponse(w, http.StatusOK, testNodeDetails1)
 						}
 						if tenantId == tenantID2 {
 							if index <= len(testNodeDetails2) {
-								_ = writeResponse(w, http.StatusOK, testNodeDetails2[index])
+								written = writeResponse(w, http.StatusOK, testNodeDetails2[index])
 							}
 						}
+					}
+					if !written {
+						unSuccess := unsuccessfulResponse{
+							Detail: responseDetail{
+								Message: "CM node group list API is failed",
+							},
+						}
+						writeResponse(w, http.StatusNotFound, unSuccess)
 					}
 				}
 			}

@@ -102,6 +102,8 @@ type TestSpec struct {
 	CaseDriverResource   int
 	CaseDeviceInfo       int
 	CaseDevice           int
+	TenantID             string
+	ClusterID            string
 }
 
 func CreateDeviceInfos(devInfoCase int) []DeviceInfo {

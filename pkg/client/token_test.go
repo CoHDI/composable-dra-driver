@@ -60,9 +60,11 @@ func TestCachedIMTokenSourceToken(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			tenantID := "0001"
-			clusterID := "0001"
-			client, server, stopServer := buildTestCDIClient(t, tenantID, clusterID)
+			testSpec := config.TestSpec{
+				TenantID:  "00000000-0000-0001-0000-000000000000",
+				ClusterID: "00000000-0000-0000-0001-000000000000",
+			}
+			client, server, stopServer := buildTestCDIClient(t, testSpec)
 			defer stopServer()
 			defer server.Close()
 			secret := config.CreateSecret(tc.certPem, tc.secretCase)
@@ -136,9 +138,11 @@ func TestIdManagerTokenSourceToken(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			tenantID := "0001"
-			clusterID := "0001"
-			client, server, stopServer := buildTestCDIClient(t, tenantID, clusterID)
+			testSpec := config.TestSpec{
+				TenantID:  "00000000-0000-0001-0000-000000000000",
+				ClusterID: "00000000-0000-0000-0001-000000000000",
+			}
+			client, server, stopServer := buildTestCDIClient(t, testSpec)
 			defer stopServer()
 			defer server.Close()
 			secret := config.CreateSecret(tc.certPem, tc.secretCase)
