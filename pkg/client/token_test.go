@@ -21,19 +21,15 @@ import (
 	ku "cdi_dra/pkg/kube_utils"
 	"encoding/base64"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestCachedIMTokenSourceToken(t *testing.T) {
-	caData, err := config.CreateTestCACertificate()
-	if err != nil {
-		t.Fatalf("failed to create ca certificate: %v", err)
-	}
 	testCases := []struct {
 		name                string
 		secretCase          int
-		certPem             string
 		sleepTime           time.Duration
 		expectedErr         bool
 		expectedTokenUpdate bool
@@ -41,18 +37,16 @@ func TestCachedIMTokenSourceToken(t *testing.T) {
 	}{
 		{
 			name:                "When token is cached",
-			secretCase:          8,
+			secretCase:          config.CaseSecretTestTimeout,
 			sleepTime:           1,
-			certPem:             caData.CertPem,
 			expectedErr:         false,
 			expectedTokenUpdate: false,
 			expectedAccessToken: `^token1`,
 		},
 		{
 			name:                "When token is newly issued",
-			secretCase:          8,
+			secretCase:          config.CaseSecretTestTimeout,
 			sleepTime:           5,
-			certPem:             caData.CertPem,
 			expectedErr:         false,
 			expectedTokenUpdate: true,
 			expectedAccessToken: `^token1`,
@@ -61,21 +55,15 @@ func TestCachedIMTokenSourceToken(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
-				TenantID:  "00000000-0000-0001-0000-000000000000",
-				ClusterID: "00000000-0000-0000-0001-000000000000",
+				TenantID:   "00000000-0000-0001-0000-000000000000",
+				ClusterID:  "00000000-0000-0000-0001-000000000000",
+				CaseSecret: tc.secretCase,
 			}
-			client, server, stopServer := buildTestCDIClient(t, testSpec)
-			defer stopServer()
-			defer server.Close()
-			secret := config.CreateSecret(tc.certPem, tc.secretCase)
-			testConfig := &config.TestConfig{
-				Secret: secret,
-			}
-			kubeclient, dynamicclient := ku.CreateTestClient(t, testConfig)
-			controllers, stopController := ku.CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			clientSet, server, stopController := BuildTestClientSet(t, testSpec)
 			defer stopController()
+			defer server.Close()
 
-			tokenSource := CachedIMTokenSource(client, controllers)
+			tokenSource := CachedIMTokenSource(clientSet.CDIClient, clientSet.KubeControllers)
 
 			now := time.Now()
 			token1, _ := tokenSource.Token()
@@ -115,46 +103,51 @@ func TestCachedIMTokenSourceToken(t *testing.T) {
 }
 
 func TestIdManagerTokenSourceToken(t *testing.T) {
-	caData, err := config.CreateTestCACertificate()
-	if err != nil {
-		t.Fatalf("failed to create ca certificate: %v", err)
-	}
 	testCases := []struct {
 		name                string
 		secretCase          int
 		certPem             string
 		expectedErr         bool
+		expectedErrMsg      string
 		expectedAccessToken string
 		expectedExpiry      time.Time
 	}{
 		{
 			name:                "When correct IMToken is obtained",
-			secretCase:          1,
-			certPem:             caData.CertPem,
+			secretCase:          config.CaseSecretCorrect,
 			expectedErr:         false,
 			expectedAccessToken: "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":2069550000}`)),
 			expectedExpiry:      time.Unix(2069550000, 0),
+		},
+		{
+			name:           "When username is too long",
+			secretCase:     config.CaseSecretTooLongUserName,
+			expectedErr:    true,
+			expectedErrMsg: "username length exceeds the limitation",
+		},
+		{
+			name:           "When CertPem is invalid",
+			secretCase:     config.CaseSecretCorrect,
+			certPem:        "invalidCertPem",
+			expectedErr:    true,
+			expectedErrMsg: "tls: failed to verify certificate",
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
-				TenantID:  "00000000-0000-0001-0000-000000000000",
-				ClusterID: "00000000-0000-0000-0001-000000000000",
+				TenantID:   "00000000-0000-0001-0000-000000000000",
+				ClusterID:  "00000000-0000-0000-0001-000000000000",
+				CaseSecret: tc.secretCase,
+				CertPem:    tc.certPem,
 			}
-			client, server, stopServer := buildTestCDIClient(t, testSpec)
-			defer stopServer()
-			defer server.Close()
-			secret := config.CreateSecret(tc.certPem, tc.secretCase)
-			testConfig := &config.TestConfig{
-				Secret: secret,
-			}
-			kubeclient, dynamicclient := ku.CreateTestClient(t, testConfig)
-			controllers, stopController := ku.CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			clientSet, server, stopController := BuildTestClientSet(t, testSpec)
 			defer stopController()
+			defer server.Close()
+
 			imTokenSource := &idManagerTokenSource{
-				cdiclient:       client,
-				kubecontrollers: controllers,
+				cdiclient:       clientSet.CDIClient,
+				kubecontrollers: clientSet.KubeControllers,
 			}
 
 			token, err := imTokenSource.Token()
@@ -162,6 +155,9 @@ func TestIdManagerTokenSourceToken(t *testing.T) {
 			if tc.expectedErr {
 				if err == nil {
 					t.Error("expected error, but got none")
+				}
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
 				if err != nil {

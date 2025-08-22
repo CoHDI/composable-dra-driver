@@ -18,14 +18,12 @@ package client
 
 import (
 	"cdi_dra/pkg/config"
-	ku "cdi_dra/pkg/kube_utils"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"reflect"
@@ -44,32 +42,6 @@ const (
 func init() {
 	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
 	slog.SetDefault(slog.New(handler))
-}
-
-func buildTestCDIClient(t testing.TB, spec config.TestSpec) (*CDIClient, *httptest.Server, ku.TestControllerShutdownFunc) {
-	server, certPem := CreateTLSServer(t)
-	server.StartTLS()
-	parsedURL, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatalf("failed to parse URL: %v", err)
-	}
-	secret := config.CreateSecret(certPem, 1)
-	testConfig := &config.TestConfig{
-		Secret: secret,
-	}
-
-	kubeclient, dynamicclient := ku.CreateTestClient(t, testConfig)
-	controllers, stop := ku.CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
-	config := &config.Config{
-		CDIEndpoint: parsedURL.Host,
-		TenantID:    spec.TenantID,
-		ClusterID:   spec.ClusterID,
-	}
-	client, err := BuildCDIClient(config, controllers)
-	if err != nil {
-		t.Fatalf("failed to build cdi client: %v", err)
-	}
-	return client, server, stop
 }
 
 func TestCDIClientGetIMToken(t *testing.T) {
@@ -114,8 +86,9 @@ func TestCDIClientGetIMToken(t *testing.T) {
 				TenantID:  "00000000-0000-0001-0000-000000000000",
 				ClusterID: "00000000-0000-0000-0001-000000000000",
 			}
-			client, server, stop := buildTestCDIClient(t, testSpec)
-			defer stop()
+			clientSet, server, stopController := BuildTestClientSet(t, testSpec)
+			client := clientSet.CDIClient
+			defer stopController()
 			defer server.Close()
 
 			idManagerSecret := idManagerSecret{
@@ -208,8 +181,9 @@ func TestCDIClientGetFMMachineList(t *testing.T) {
 				TenantID:  tc.tenantId,
 				ClusterID: "00000000-0000-0000-0001-000000000000",
 			}
-			client, server, stop := buildTestCDIClient(t, testSpec)
-			defer stop()
+			clientSet, server, stopController := BuildTestClientSet(t, testSpec)
+			client := clientSet.CDIClient
+			defer stopController()
 			defer server.Close()
 			cachedToken(t, client, tc.tokenCached)
 			changeHost(client, tc.host)
@@ -304,8 +278,9 @@ func TestCDIClientGetFMAvailableReservedResources(t *testing.T) {
 				TenantID:  tc.tenantId,
 				ClusterID: "00000000-0000-0000-0001-000000000000",
 			}
-			client, server, stop := buildTestCDIClient(t, testSpec)
-			defer stop()
+			clientSet, server, stopController := BuildTestClientSet(t, testSpec)
+			client := clientSet.CDIClient
+			defer stopController()
 			defer server.Close()
 			cachedToken(t, client, tc.tokenCached)
 			changeHost(client, tc.host)
@@ -397,8 +372,9 @@ func TestCDIClientGetCMNodeGroups(t *testing.T) {
 				TenantID:  tc.tenantId,
 				ClusterID: tc.clusterId,
 			}
-			client, server, stop := buildTestCDIClient(t, testSpec)
-			defer stop()
+			clientSet, server, stopController := BuildTestClientSet(t, testSpec)
+			client := clientSet.CDIClient
+			defer stopController()
 			defer server.Close()
 			cachedToken(t, client, tc.tokenCached)
 			changeHost(client, tc.host)
@@ -495,8 +471,9 @@ func TestCDIClientGetCMNodeGroupInfo(t *testing.T) {
 				TenantID:  tc.tenantId,
 				ClusterID: tc.clusterId,
 			}
-			client, server, stop := buildTestCDIClient(t, testSpec)
-			defer stop()
+			clientSet, server, stopController := BuildTestClientSet(t, testSpec)
+			client := clientSet.CDIClient
+			defer stopController()
 			defer server.Close()
 			cachedToken(t, client, tc.tokenCached)
 			changeHost(client, tc.host)
@@ -616,8 +593,9 @@ func TestCDIClientGetCMNodeDetails(t *testing.T) {
 				TenantID:  tc.tenantId,
 				ClusterID: tc.clusterId,
 			}
-			client, server, stop := buildTestCDIClient(t, testSpec)
-			defer stop()
+			clientSet, server, stopController := BuildTestClientSet(t, testSpec)
+			client := clientSet.CDIClient
+			defer stopController()
 			defer server.Close()
 			cachedToken(t, client, tc.tokenCached)
 			changeHost(client, tc.host)
@@ -694,8 +672,9 @@ func TestCDIClientDo(t *testing.T) {
 				TenantID:  tc.tenantId,
 				ClusterID: "00000000-0000-0000-0001-000000000000",
 			}
-			client, server, stop := buildTestCDIClient(t, testSpec)
-			defer stop()
+			clientSet, server, stopController := BuildTestClientSet(t, testSpec)
+			client := clientSet.CDIClient
+			defer stopController()
 			defer server.Close()
 
 			var host string

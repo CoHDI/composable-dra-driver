@@ -77,6 +77,17 @@ const (
 	CaseLabelPrefixInvalid
 )
 
+const (
+	CaseSecretCorrect = iota + 1
+	CaseSecretTooLongUserName
+	CaseSecretTooLongPass
+	CaseSecretTooLongRealm
+	CaseSecretTooLongClientId
+	CaseSecretTooLongClientSecret
+	CaseSecretAlmostMaxUserName
+	CaseSecretTestTimeout
+)
+
 var FullLengthModel string = RandomString(1000)
 var FullLengthAttrKey string = RandomString(63) + "/" + RandomString(32)
 var FullLengthAttrValue string = RandomString(64)
@@ -102,6 +113,8 @@ type TestSpec struct {
 	CaseDriverResource   int
 	CaseDeviceInfo       int
 	CaseDevice           int
+	CaseSecret           int
+	CertPem              string
 	TenantID             string
 	ClusterID            string
 }
@@ -606,20 +619,7 @@ func CreateSecret(certPem string, secretCase int) *corev1.Secret {
 		Namespace: "composable-dra",
 	}
 	switch secretCase {
-	case 1:
-		secret = &corev1.Secret{
-			TypeMeta:   secretType,
-			ObjectMeta: secretObject,
-			Data: map[string][]byte{
-				"username":      []byte("user"),
-				"password":      []byte("pass"),
-				"realm":         []byte("CDI_DRA_Test"),
-				"client_id":     []byte("0001"),
-				"client_secret": []byte("secret"),
-				"certificate":   []byte(certPem),
-			},
-		}
-	case 2:
+	case CaseSecretTooLongUserName:
 		secret = &corev1.Secret{
 			TypeMeta:   secretType,
 			ObjectMeta: secretObject,
@@ -627,7 +627,7 @@ func CreateSecret(certPem string, secretCase int) *corev1.Secret {
 				"username": []byte(ExceededSecretInfo),
 			},
 		}
-	case 3:
+	case CaseSecretTooLongPass:
 		secret = &corev1.Secret{
 			TypeMeta:   secretType,
 			ObjectMeta: secretObject,
@@ -635,7 +635,7 @@ func CreateSecret(certPem string, secretCase int) *corev1.Secret {
 				"password": []byte(ExceededSecretInfo),
 			},
 		}
-	case 4:
+	case CaseSecretTooLongRealm:
 		secret = &corev1.Secret{
 			TypeMeta:   secretType,
 			ObjectMeta: secretObject,
@@ -643,7 +643,7 @@ func CreateSecret(certPem string, secretCase int) *corev1.Secret {
 				"realm": []byte(ExceededSecretInfo),
 			},
 		}
-	case 5:
+	case CaseSecretTooLongClientId:
 		secret = &corev1.Secret{
 			TypeMeta:   secretType,
 			ObjectMeta: secretObject,
@@ -651,7 +651,7 @@ func CreateSecret(certPem string, secretCase int) *corev1.Secret {
 				"client_id": []byte(ExceededSecretInfo),
 			},
 		}
-	case 6:
+	case CaseSecretTooLongClientSecret:
 		secret = &corev1.Secret{
 			TypeMeta:   secretType,
 			ObjectMeta: secretObject,
@@ -659,7 +659,7 @@ func CreateSecret(certPem string, secretCase int) *corev1.Secret {
 				"client_secret": []byte(ExceededSecretInfo),
 			},
 		}
-	case 7:
+	case CaseSecretAlmostMaxUserName:
 		secret = &corev1.Secret{
 			TypeMeta:   secretType,
 			ObjectMeta: secretObject,
@@ -667,7 +667,7 @@ func CreateSecret(certPem string, secretCase int) *corev1.Secret {
 				"username": []byte(UnExceededSecretInfo),
 			},
 		}
-	case 8:
+	case CaseSecretTestTimeout:
 		secret = &corev1.Secret{
 			TypeMeta:   secretType,
 			ObjectMeta: secretObject,
@@ -675,6 +675,19 @@ func CreateSecret(certPem string, secretCase int) *corev1.Secret {
 				"username":      []byte("user"),
 				"password":      []byte("pass"),
 				"realm":         []byte("Time_Test"),
+				"client_id":     []byte("0001"),
+				"client_secret": []byte("secret"),
+				"certificate":   []byte(certPem),
+			},
+		}
+	default:
+		secret = &corev1.Secret{
+			TypeMeta:   secretType,
+			ObjectMeta: secretObject,
+			Data: map[string][]byte{
+				"username":      []byte("user"),
+				"password":      []byte("pass"),
+				"realm":         []byte("CDI_DRA_Test"),
 				"client_id":     []byte("0001"),
 				"client_secret": []byte("secret"),
 				"certificate":   []byte(certPem),

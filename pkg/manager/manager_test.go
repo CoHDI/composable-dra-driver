@@ -24,12 +24,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"reflect"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -37,9 +35,7 @@ import (
 	resourceapi "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
-	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/dynamic-resource-allocation/resourceslice"
 	"k8s.io/utils/ptr"
 )
@@ -133,47 +129,17 @@ func createTestDriverResources(caseDriverResource int) map[string]*resourceslice
 func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *httptest.Server, ku.TestControllerShutdownFunc) {
 	ndr := createTestDriverResources(testSpec.CaseDriverResource)
 
-	server, certPem := client.CreateTLSServer(t)
-	server.StartTLS()
-
-	secret := config.CreateSecret(certPem, 1)
-	testConfig := &config.TestConfig{
-		Spec:   testSpec,
-		Secret: secret,
-		Nodes:  make([]*v1.Node, config.TestNodeCount),
-		BMHs:   make([]*unstructured.Unstructured, config.TestNodeCount),
-	}
-	for i := 0; i < config.TestNodeCount; i++ {
-		testConfig.Nodes[i], testConfig.BMHs[i] = ku.CreateNodeBMHs(i, "test-namespace", testConfig.Spec.UseCapiBmh)
-	}
-
-	kubeclient, dynamicclient := ku.CreateTestClient(t, testConfig)
-	kubeclient.PrependReactor("create", "resourceslices", createResourceSliceCreateReactor())
-	kc, stop := ku.CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
-
-	parsedURL, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatalf("failed to parse URL: %v", err)
-	}
-	cfg := &config.Config{
-		CDIEndpoint: parsedURL.Host,
-		TenantID:    "00000000-0000-0002-0000-000000000000",
-		ClusterID:   "00000000-0000-0000-0001-000000000000",
-	}
-	cdiClient, err := client.BuildCDIClient(cfg, kc)
-	if err != nil {
-		t.Fatalf("failed to build CDIClient: %v", err)
-	}
+	clientSet, server, stop := client.BuildTestClientSet(t, testSpec)
 
 	deviceInfos := config.CreateDeviceInfos(testSpec.CaseDeviceInfo)
 
 	return &CDIManager{
-		coreClient:           kubeclient,
-		bmhClient:            dynamicclient,
-		discoveryClient:      kubeclient.Discovery(),
+		coreClient:           clientSet.KubeClient,
+		bmhClient:            clientSet.DynamicClient,
+		discoveryClient:      clientSet.KubeClient.Discovery(),
 		namedDriverResources: ndr,
-		cdiClient:            cdiClient,
-		kubecontrollers:      kc,
+		cdiClient:            clientSet.CDIClient,
+		kubecontrollers:      clientSet.KubeControllers,
 		deviceInfos:          deviceInfos,
 		labelPrefix:          "cohdi.com",
 		cdiOptions: CDIOptions{
@@ -182,21 +148,6 @@ func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *ht
 		},
 	}, server, stop
 
-}
-
-func createResourceSliceCreateReactor() func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
-	nameCounter := 0
-	var mutex sync.Mutex
-	return func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
-		mutex.Lock()
-		defer mutex.Unlock()
-		resourceslice := action.(k8stesting.CreateAction).GetObject().(*resourceapi.ResourceSlice)
-		if resourceslice.Name == "" && resourceslice.GenerateName != "" {
-			resourceslice.Name = fmt.Sprintf("%s%d", resourceslice.GenerateName, nameCounter)
-		}
-		nameCounter++
-		return false, nil, nil
-	}
 }
 
 func createTestMachines(ts config.TestSpec) []*machine {

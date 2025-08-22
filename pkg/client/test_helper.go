@@ -18,6 +18,7 @@ package client
 
 import (
 	"cdi_dra/pkg/config"
+	ku "cdi_dra/pkg/kube_utils"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -32,12 +33,21 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
+	resourceapi "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	fakedynamic "k8s.io/client-go/dynamic/fake"
+	fakekube "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/utils/ptr"
 )
 
@@ -49,44 +59,6 @@ const (
 
 	clusterID1 = "00000000-0000-0000-0001-000000000000"
 )
-
-func createTestServerCertificate(caCertData config.CertData) (certPEMBlock, keyPEMBlock []byte, err error) {
-	privateServerKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, nil, err
-	}
-	publicServerKey := privateServerKey.Public()
-
-	subjectServer := pkix.Name{
-		CommonName:         "server-composable-dra-dds-test",
-		OrganizationalUnit: []string{"CoHDI"},
-		Organization:       []string{"composable-dra-dds"},
-		Country:            []string{"JP"},
-	}
-	created := time.Now()
-	expire := created.Add(config.CA_EXPIRE)
-	serverTpl := &x509.Certificate{
-		SerialNumber: big.NewInt(123),
-		Subject:      subjectServer,
-		NotAfter:     expire,
-		NotBefore:    created,
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     []string{"localhost"},
-		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
-	}
-	derPrivateServerKey := x509.MarshalPKCS1PrivateKey(privateServerKey)
-	keyPEMBlock = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: derPrivateServerKey})
-
-	derServerCertificate, err := x509.CreateCertificate(rand.Reader, serverTpl, caCertData.CaTpl, publicServerKey, caCertData.PrivKey)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	certPEMBlock = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derServerCertificate})
-
-	return certPEMBlock, keyPEMBlock, nil
-}
 
 var testAccessToken string = "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":2069550000}`))
 
@@ -590,6 +562,52 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func writeResponse(w http.ResponseWriter, status int, response interface{}) bool {
+	resByte, _ := json.Marshal(response)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(resByte)
+	return true
+}
+
+func createTestServerCertificate(caCertData config.CertData) (certPEMBlock, keyPEMBlock []byte, err error) {
+	privateServerKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, nil, err
+	}
+	publicServerKey := privateServerKey.Public()
+
+	subjectServer := pkix.Name{
+		CommonName:         "server-composable-dra-dds-test",
+		OrganizationalUnit: []string{"CoHDI"},
+		Organization:       []string{"composable-dra-dds"},
+		Country:            []string{"JP"},
+	}
+	created := time.Now()
+	expire := created.Add(config.CA_EXPIRE)
+	serverTpl := &x509.Certificate{
+		SerialNumber: big.NewInt(123),
+		Subject:      subjectServer,
+		NotAfter:     expire,
+		NotBefore:    created,
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     []string{"localhost"},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	derPrivateServerKey := x509.MarshalPKCS1PrivateKey(privateServerKey)
+	keyPEMBlock = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: derPrivateServerKey})
+
+	derServerCertificate, err := x509.CreateCertificate(rand.Reader, serverTpl, caCertData.CaTpl, publicServerKey, caCertData.PrivKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	certPEMBlock = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derServerCertificate})
+
+	return certPEMBlock, keyPEMBlock, nil
+}
+
 func CreateTLSServer(t testing.TB) (*httptest.Server, string) {
 	caCertData, err := config.CreateTestCACertificate()
 	if err != nil {
@@ -610,10 +628,80 @@ func CreateTLSServer(t testing.TB) (*httptest.Server, string) {
 	return server, caCertData.CertPem
 }
 
-func writeResponse(w http.ResponseWriter, status int, response interface{}) bool {
-	resByte, _ := json.Marshal(response)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	w.Write(resByte)
-	return true
+type TestClientSet struct {
+	CDIClient       *CDIClient
+	KubeClient      *fakekube.Clientset
+	DynamicClient   *fakedynamic.FakeDynamicClient
+	KubeControllers *ku.KubeControllers
+}
+
+func BuildTestClientSet(t testing.TB, testSpec config.TestSpec) (TestClientSet, *httptest.Server, ku.TestControllerShutdownFunc) {
+	server, certPem := CreateTLSServer(t)
+	server.StartTLS()
+	parsedURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("failed to parse URL: %v", err)
+	}
+	if len(testSpec.CertPem) > 0 {
+		certPem = testSpec.CertPem
+	}
+	secret := config.CreateSecret(certPem, testSpec.CaseSecret)
+	testConfig := &config.TestConfig{
+		Spec:   testSpec,
+		Secret: secret,
+		Nodes:  make([]*v1.Node, config.TestNodeCount),
+		BMHs:   make([]*unstructured.Unstructured, config.TestNodeCount),
+	}
+	for i := 0; i < config.TestNodeCount; i++ {
+		testConfig.Nodes[i], testConfig.BMHs[i] = ku.CreateNodeBMHs(i, "test-namespace", testConfig.Spec.UseCapiBmh)
+	}
+
+	kubeclient, dynamicclient := ku.CreateTestClient(t, testConfig)
+	kubeclient.PrependReactor("create", "resourceslices", createResourceSliceCreateReactor())
+	controllers, stop := ku.CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+
+	var tenantID, clusterID string
+	if len(testSpec.TenantID) > 0 {
+		tenantID = testSpec.TenantID
+	} else {
+		tenantID = "00000000-0000-0002-0000-000000000000"
+	}
+	if len(testSpec.ClusterID) > 0 {
+		clusterID = testSpec.ClusterID
+	} else {
+		clusterID = "00000000-0000-0000-0001-000000000000"
+	}
+
+	config := &config.Config{
+		CDIEndpoint: parsedURL.Host,
+		TenantID:    tenantID,
+		ClusterID:   clusterID,
+	}
+	cdiClient, err := BuildCDIClient(config, controllers)
+	if err != nil {
+		t.Fatalf("failed to build cdi client: %v", err)
+	}
+
+	clientSet := TestClientSet{
+		CDIClient:       cdiClient,
+		KubeClient:      kubeclient,
+		DynamicClient:   dynamicclient,
+		KubeControllers: controllers,
+	}
+	return clientSet, server, stop
+}
+
+func createResourceSliceCreateReactor() func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
+	nameCounter := 0
+	var mutex sync.Mutex
+	return func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
+		mutex.Lock()
+		defer mutex.Unlock()
+		resourceslice := action.(k8stesting.CreateAction).GetObject().(*resourceapi.ResourceSlice)
+		if resourceslice.Name == "" && resourceslice.GenerateName != "" {
+			resourceslice.Name = fmt.Sprintf("%s%d", resourceslice.GenerateName, nameCounter)
+		}
+		nameCounter++
+		return false, nil, nil
+	}
 }
