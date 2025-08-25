@@ -21,19 +21,15 @@ import (
 	ku "cdi_dra/pkg/kube_utils"
 	"encoding/base64"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestCachedIMTokenSourceToken(t *testing.T) {
-	caData, err := config.CreateTestCACertificate()
-	if err != nil {
-		t.Fatalf("failed to create ca certificate: %v", err)
-	}
 	testCases := []struct {
 		name                string
 		secretCase          int
-		certPem             string
 		sleepTime           time.Duration
 		expectedErr         bool
 		expectedTokenUpdate bool
@@ -41,18 +37,16 @@ func TestCachedIMTokenSourceToken(t *testing.T) {
 	}{
 		{
 			name:                "When token is cached",
-			secretCase:          8,
+			secretCase:          config.CaseSecretTestTimeout,
 			sleepTime:           1,
-			certPem:             caData.CertPem,
 			expectedErr:         false,
 			expectedTokenUpdate: false,
 			expectedAccessToken: `^token1`,
 		},
 		{
 			name:                "When token is newly issued",
-			secretCase:          8,
+			secretCase:          config.CaseSecretTestTimeout,
 			sleepTime:           5,
-			certPem:             caData.CertPem,
 			expectedErr:         false,
 			expectedTokenUpdate: true,
 			expectedAccessToken: `^token1`,
@@ -60,20 +54,16 @@ func TestCachedIMTokenSourceToken(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			tenantID := "0001"
-			clusterID := "0001"
-			client, server, stopServer := buildTestCDIClient(t, tenantID, clusterID)
-			defer stopServer()
-			defer server.Close()
-			secret := config.CreateSecret(tc.certPem, tc.secretCase)
-			testConfig := &config.TestConfig{
-				Secret: secret,
+			testSpec := config.TestSpec{
+				TenantID:   "00000000-0000-0001-0000-000000000000",
+				ClusterID:  "00000000-0000-0000-0001-000000000000",
+				CaseSecret: tc.secretCase,
 			}
-			kubeclient, dynamicclient := ku.CreateTestClient(t, testConfig)
-			controllers, stopController := ku.CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			clientSet, server, stopController := BuildTestClientSet(t, testSpec)
 			defer stopController()
+			defer server.Close()
 
-			tokenSource := CachedIMTokenSource(client, controllers)
+			tokenSource := CachedIMTokenSource(clientSet.CDIClient, clientSet.KubeControllers)
 
 			now := time.Now()
 			token1, _ := tokenSource.Token()
@@ -113,44 +103,69 @@ func TestCachedIMTokenSourceToken(t *testing.T) {
 }
 
 func TestIdManagerTokenSourceToken(t *testing.T) {
-	caData, err := config.CreateTestCACertificate()
-	if err != nil {
-		t.Fatalf("failed to create ca certificate: %v", err)
-	}
 	testCases := []struct {
 		name                string
 		secretCase          int
 		certPem             string
 		expectedErr         bool
+		expectedErrMsg      string
 		expectedAccessToken string
 		expectedExpiry      time.Time
 	}{
 		{
 			name:                "When correct IMToken is obtained",
-			secretCase:          1,
-			certPem:             caData.CertPem,
+			secretCase:          config.CaseSecretCorrect,
 			expectedErr:         false,
 			expectedAccessToken: "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":2069550000}`)),
 			expectedExpiry:      time.Unix(2069550000, 0),
 		},
+		{
+			name:           "When username is too long",
+			secretCase:     config.CaseSecretTooLongUserName,
+			expectedErr:    true,
+			expectedErrMsg: "username length exceeds the limitation",
+		},
+		{
+			name:           "When CertPem is invalid",
+			secretCase:     config.CaseSecretCorrect,
+			certPem:        "invalidCertPem",
+			expectedErr:    true,
+			expectedErrMsg: "tls: failed to verify certificate",
+		},
+		{
+			name:           "When IMToken's accessToken is invalid",
+			secretCase:     config.CaseSecretInvalidAccessToken,
+			expectedErr:    true,
+			expectedErrMsg: "invalid access token",
+		},
+		{
+			name:           "When decoding IMToken's accessToken is failed",
+			secretCase:     config.CaseSecretFailedDecodeToken,
+			expectedErr:    true,
+			expectedErrMsg: "failed to decode base64",
+		},
+		{
+			name:           "When token is not JSON form",
+			secretCase:     config.CaseSecretNotJsonToken,
+			expectedErr:    true,
+			expectedErrMsg: "failed to unmarshal JSON",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			tenantID := "0001"
-			clusterID := "0001"
-			client, server, stopServer := buildTestCDIClient(t, tenantID, clusterID)
-			defer stopServer()
-			defer server.Close()
-			secret := config.CreateSecret(tc.certPem, tc.secretCase)
-			testConfig := &config.TestConfig{
-				Secret: secret,
+			testSpec := config.TestSpec{
+				TenantID:   "00000000-0000-0001-0000-000000000000",
+				ClusterID:  "00000000-0000-0000-0001-000000000000",
+				CaseSecret: tc.secretCase,
+				CertPem:    tc.certPem,
 			}
-			kubeclient, dynamicclient := ku.CreateTestClient(t, testConfig)
-			controllers, stopController := ku.CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			clientSet, server, stopController := BuildTestClientSet(t, testSpec)
 			defer stopController()
+			defer server.Close()
+
 			imTokenSource := &idManagerTokenSource{
-				cdiclient:       client,
-				kubecontrollers: controllers,
+				cdiclient:       clientSet.CDIClient,
+				kubecontrollers: clientSet.KubeControllers,
 			}
 
 			token, err := imTokenSource.Token()
@@ -158,6 +173,9 @@ func TestIdManagerTokenSourceToken(t *testing.T) {
 			if tc.expectedErr {
 				if err == nil {
 					t.Error("expected error, but got none")
+				}
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
 				if err != nil {
@@ -188,7 +206,7 @@ func TestGetIdManagerSecret(t *testing.T) {
 	}{
 		{
 			name:                 "When correct secret is created",
-			secretCase:           1,
+			secretCase:           config.CaseSecretCorrect,
 			expectedErr:          false,
 			expectedUserName:     "user",
 			expectedPassword:     "pass",
@@ -198,37 +216,37 @@ func TestGetIdManagerSecret(t *testing.T) {
 		},
 		{
 			name:               "When username in secret exceeds limits of character count",
-			secretCase:         2,
+			secretCase:         config.CaseSecretTooLongUserName,
 			expectedErr:        true,
 			expectedErrMessage: "username length exceeds the limitation",
 		},
 		{
 			name:               "When password in secret exceeds limits of character count",
-			secretCase:         3,
+			secretCase:         config.CaseSecretTooLongPass,
 			expectedErr:        true,
 			expectedErrMessage: "password length exceeds the limitation",
 		},
 		{
 			name:               "When realm in secret exceeds limits of character count",
-			secretCase:         4,
+			secretCase:         config.CaseSecretTooLongRealm,
 			expectedErr:        true,
 			expectedErrMessage: "realm length exceeds the limitation",
 		},
 		{
 			name:               "When client_id in secret exceeds limits of character count",
-			secretCase:         5,
+			secretCase:         config.CaseSecretTooLongClientId,
 			expectedErr:        true,
 			expectedErrMessage: "client_id length exceeds the limitation",
 		},
 		{
 			name:               "When client_secret in secret exceeds limits of character count",
-			secretCase:         6,
+			secretCase:         config.CaseSecretTooLongClientSecret,
 			expectedErr:        true,
 			expectedErrMessage: "client_secret length exceeds the limitation",
 		},
 		{
 			name:             "When username in secret doesn't exceed limits of character count",
-			secretCase:       7,
+			secretCase:       config.CaseSecretAlmostMaxUserName,
 			expectedErr:      false,
 			expectedUserName: config.UnExceededSecretInfo,
 		},
@@ -263,19 +281,19 @@ func TestGetIdManagerSecret(t *testing.T) {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
-				if imSecret.username != tc.expectedUserName {
+				if len(tc.expectedUserName) > 0 && imSecret.username != tc.expectedUserName {
 					t.Errorf("unexpected username of IdManagerSecret, expected %s but got %s", tc.expectedUserName, imSecret.username)
 				}
-				if imSecret.password != tc.expectedPassword {
+				if len(tc.expectedPassword) > 0 && imSecret.password != tc.expectedPassword {
 					t.Errorf("unexpected password of IdManagerSecret, expected %s but got %s", tc.expectedPassword, imSecret.password)
 				}
-				if imSecret.realm != tc.expectedRealm {
+				if len(tc.expectedRealm) > 0 && imSecret.realm != tc.expectedRealm {
 					t.Errorf("unexpected realm of IdManagerSecret, expected %s but got %s", tc.expectedRealm, imSecret.realm)
 				}
-				if imSecret.client_id != tc.expectedClientId {
+				if len(tc.expectedClientId) > 0 && imSecret.client_id != tc.expectedClientId {
 					t.Errorf("unexpected client_id of IdManagerSecret, expected %s but got %s", tc.expectedClientId, imSecret.client_id)
 				}
-				if imSecret.client_secret != tc.expectedClientSecret {
+				if len(tc.expectedClientSecret) > 0 && imSecret.client_secret != tc.expectedClientSecret {
 					t.Errorf("unexpected client_secret of IdManagerSecret, expected %s but got %s", tc.expectedClientSecret, imSecret.client_secret)
 				}
 			}

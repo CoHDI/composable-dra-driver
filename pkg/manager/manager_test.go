@@ -24,12 +24,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"reflect"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -37,9 +35,7 @@ import (
 	resourceapi "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
-	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/dynamic-resource-allocation/resourceslice"
 	"k8s.io/utils/ptr"
 )
@@ -54,6 +50,8 @@ const (
 
 const (
 	CaseDriverResourceCorrect = iota
+	CaseDriverResourceEmpty
+	CaseDriverResourceFullLength
 )
 
 const (
@@ -113,6 +111,17 @@ func createTestDriverResources(caseDriverResource int) map[string]*resourceslice
 		ndr["test-driver-2"] = &resourceslice.DriverResources{
 			Pools: make(map[string]resourceslice.Pool),
 		}
+	case CaseDriverResourceEmpty:
+		ndr["test-driver-1"] = &resourceslice.DriverResources{
+			Pools: make(map[string]resourceslice.Pool),
+		}
+		ndr["test-driver-2"] = &resourceslice.DriverResources{
+			Pools: make(map[string]resourceslice.Pool),
+		}
+	case CaseDriverResourceFullLength:
+		ndr[config.FullLengthDriverName] = &resourceslice.DriverResources{
+			Pools: make(map[string]resourceslice.Pool),
+		}
 	}
 	return ndr
 }
@@ -120,46 +129,17 @@ func createTestDriverResources(caseDriverResource int) map[string]*resourceslice
 func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *httptest.Server, ku.TestControllerShutdownFunc) {
 	ndr := createTestDriverResources(testSpec.CaseDriverResource)
 
-	server, certPem := client.CreateTLSServer(t)
-	server.StartTLS()
-
-	secret := config.CreateSecret(certPem, 1)
-	testConfig := &config.TestConfig{
-		Spec:   testSpec,
-		Secret: secret,
-		Nodes:  make([]*v1.Node, config.TestNodeCount),
-		BMHs:   make([]*unstructured.Unstructured, config.TestNodeCount),
-	}
-	for i := 0; i < config.TestNodeCount; i++ {
-		testConfig.Nodes[i], testConfig.BMHs[i] = ku.CreateNodeBMHs(i, "test-namespace", testConfig.Spec.UseCapiBmh)
-	}
-
-	kubeclient, dynamicclient := ku.CreateTestClient(t, testConfig)
-	kubeclient.PrependReactor("create", "resourceslices", createResourceSliceCreateReactor())
-	kc, stop := ku.CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
-
-	parsedURL, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatalf("failed to parse URL: %v", err)
-	}
-	cfg := &config.Config{
-		CDIEndpoint: parsedURL.Host,
-		TenantID:    "00000000-0000-0002-0000-000000000000",
-		ClusterID:   "00000000-0000-0000-0001-000000000000",
-	}
-	cdiClient, err := client.BuildCDIClient(cfg, kc)
-	if err != nil {
-		t.Fatalf("failed to build CDIClient: %v", err)
-	}
+	clientSet, server, stop := client.BuildTestClientSet(t, testSpec)
 
 	deviceInfos := config.CreateDeviceInfos(testSpec.CaseDeviceInfo)
 
 	return &CDIManager{
-		coreClient:           kubeclient,
-		discoveryClient:      kubeclient.Discovery(),
+		coreClient:           clientSet.KubeClient,
+		bmhClient:            clientSet.DynamicClient,
+		discoveryClient:      clientSet.KubeClient.Discovery(),
 		namedDriverResources: ndr,
-		cdiClient:            cdiClient,
-		kubecontrollers:      kc,
+		cdiClient:            clientSet.CDIClient,
+		kubecontrollers:      clientSet.KubeControllers,
 		deviceInfos:          deviceInfos,
 		labelPrefix:          "cohdi.com",
 		cdiOptions: CDIOptions{
@@ -168,21 +148,6 @@ func createTestManager(t testing.TB, testSpec config.TestSpec) (*CDIManager, *ht
 		},
 	}, server, stop
 
-}
-
-func createResourceSliceCreateReactor() func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
-	nameCounter := 0
-	var mutex sync.Mutex
-	return func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
-		mutex.Lock()
-		defer mutex.Unlock()
-		resourceslice := action.(k8stesting.CreateAction).GetObject().(*resourceapi.ResourceSlice)
-		if resourceslice.Name == "" && resourceslice.GenerateName != "" {
-			resourceslice.Name = fmt.Sprintf("%s%d", resourceslice.GenerateName, nameCounter)
-		}
-		nameCounter++
-		return false, nil, nil
-	}
 }
 
 func createTestMachines(ts config.TestSpec) []*machine {
@@ -283,6 +248,17 @@ func createTestControllers(t testing.TB, kubeClitent kubernetes.Interface) map[s
 		},
 	}
 	controlles["test-driver-2"], err = resourceslice.StartController(context.Background(), options2)
+	if err != nil {
+		t.Fatalf("failed to start resourceslice controller: %v", err)
+	}
+	options3 := resourceslice.Options{
+		DriverName: config.FullLengthDriverName,
+		KubeClient: kubeClitent,
+		Resources: &resourceslice.DriverResources{
+			Pools: make(map[string]resourceslice.Pool),
+		},
+	}
+	controlles[config.FullLengthDriverName], err = resourceslice.StartController(context.Background(), options3)
 	if err != nil {
 		t.Fatalf("failed to start resourceslice controller: %v", err)
 	}
@@ -398,14 +374,16 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 		useCM                    bool
 		nodeName                 string
 		caseDevInfo              int
+		caseDriverResource       int
+		deletedAnnotationBmh     []string
 		expectedErr              bool
 		expectedErrMsg           string
 		expectedPoolName         string
 		expectedDriverName       string
 		expectedDeviceName       string
-		expectedProductName      string
+		expectedAttributes       map[string]string
+		expectedAttributeFactors int
 		expectedBCFailure        []string
-		expectedBindingTimeout   int64
 		expectedAvailableDevices int
 		expectedResourceSliceNum int
 		expectedFabric           string
@@ -416,6 +394,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 			name:                     "When the loop is done successfully with USE_CM/USE_CAPI_BMH is false",
 			useCapiBmh:               false,
 			useCM:                    false,
+			caseDriverResource:       CaseDriverResourceEmpty,
 			nodeName:                 "test-node-0",
 			expectedResourceSliceNum: 9,
 			expectedPoolName:         "test-device-1-fabric1",
@@ -423,34 +402,120 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 			expectedFabric:           "1",
 			expectedDeviceName:       "test-device-1",
 			expectedDriverName:       "test-driver-1",
-			expectedProductName:      "TEST DEVICE 1",
-			expectedBCFailure:        []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
-			expectedBindingTimeout:   100,
-			expectedMaxDevice:        "",
-			expectedMinDevice:        "",
+			expectedAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
+			expectedBCFailure: []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
+			expectedMaxDevice: "",
+			expectedMinDevice: "",
 		},
 		{
 			name:               "When the loop is done successfully with USE_CM/USE_CAPI_BMH is true",
 			useCapiBmh:         true,
 			useCM:              true,
+			caseDriverResource: CaseDriverResourceEmpty,
 			nodeName:           "test-node-0",
 			expectedDeviceName: "test-device-1",
 			expectedFabric:     "1",
 			expectedMaxDevice:  "3",
 			expectedMinDevice:  "1",
 		},
+		{
+			name:                     "When some BMH have no machine uuid",
+			useCapiBmh:               true,
+			useCM:                    true,
+			caseDriverResource:       CaseDriverResourceEmpty,
+			deletedAnnotationBmh:     []string{"test-bmh-0", "test-bmh-3", "test-bmh-6"},
+			nodeName:                 "test-node-0",
+			expectedDeviceName:       "test-device-2",
+			expectedFabric:           "",
+			expectedMaxDevice:        "",
+			expectedMinDevice:        "",
+			expectedResourceSliceNum: 6,
+			expectedAvailableDevices: 5,
+			expectedPoolName:         "test-device-2-fabric2",
+			expectedDriverName:       "test-driver-1",
+			expectedAttributes: map[string]string{
+				"productName": "TEST DEVICE 2",
+			},
+			expectedBCFailure: []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
+		},
+		{
+			name:                 "When all BMHs have no machine uuid",
+			useCapiBmh:           true,
+			useCM:                true,
+			caseDriverResource:   CaseDriverResourceEmpty,
+			deletedAnnotationBmh: []string{"ALL"},
+			expectedErr:          true,
+			expectedErrMsg:       "not any machine uuid is found",
+		},
+		{
+			name:               "When cdi-model-name includes symbol",
+			useCapiBmh:         false,
+			useCM:              false,
+			caseDevInfo:        config.CaseDevInfoModelSymbol,
+			caseDriverResource: CaseDriverResourceEmpty,
+			expectedErr:        true,
+			expectedErrMsg:     "FM available reserved resources API failed",
+		},
+		{
+			name:                     "When DeviceInfo has factors with full length name",
+			useCapiBmh:               true,
+			useCM:                    true,
+			nodeName:                 "test-node-8",
+			caseDevInfo:              config.CaseDevInfoFullLength,
+			caseDriverResource:       CaseDriverResourceFullLength,
+			expectedResourceSliceNum: 3,
+			expectedPoolName:         "test-device-1-fabric1",
+			expectedAvailableDevices: 128,
+			expectedFabric:           "3",
+			expectedDeviceName:       config.FullLengthDeviceName,
+			expectedDriverName:       config.FullLengthDriverName,
+			expectedAttributes: map[string]string{
+				config.FullLengthAttrKey: config.FullLengthAttrValue,
+			},
+			expectedAttributeFactors: 32,
+			expectedBCFailure:        []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
+			expectedMaxDevice:        "12",
+			expectedMinDevice:        "3",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
-				UseCapiBmh:     tc.useCapiBmh,
-				UseCM:          tc.useCM,
-				DRAenabled:     true,
-				CaseDeviceInfo: tc.caseDevInfo,
+				UseCapiBmh:         tc.useCapiBmh,
+				UseCM:              tc.useCM,
+				DRAenabled:         true,
+				CaseDeviceInfo:     tc.caseDevInfo,
+				CaseDriverResource: tc.caseDriverResource,
 			}
 			m, server, stop := createTestManager(t, testSpec)
 			defer server.Close()
 			defer stop()
+
+			if len(tc.deletedAnnotationBmh) > 0 {
+				var bmhNames []string
+				if tc.deletedAnnotationBmh[0] == "ALL" {
+					for i := 0; i < 9; i++ {
+						bmhNames = append(bmhNames, fmt.Sprintf("test-bmh-%d", i))
+					}
+				} else {
+					bmhNames = tc.deletedAnnotationBmh
+				}
+				for _, bmhName := range bmhNames {
+					bmh, err := m.bmhClient.Resource(ku.GVK_BMH).Namespace("test-namespace").Get(context.Background(), bmhName, metav1.GetOptions{})
+					if err != nil {
+						t.Fatalf("failed to get BareMetalHost: %v", err)
+					}
+					bmh = bmh.DeepCopy()
+					unstructured.RemoveNestedField(bmh.UnstructuredContent(), "metadata", "annotations", "cluster-manager.cdi.io/machine")
+					_, err = m.bmhClient.Resource(ku.GVK_BMH).Namespace("test-namespace").Update(context.Background(), bmh, metav1.UpdateOptions{})
+					if err != nil {
+						t.Fatalf("failed to update BareMetalHost: %v", err)
+					}
+				}
+			}
+
 			controlles := createTestControllers(t, m.coreClient)
 
 			err := m.startCheckResourcePoolLoop(context.Background(), controlles)
@@ -492,9 +557,16 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 						for _, device := range resourceslice.Spec.Devices {
 							if len(tc.expectedDeviceName) > 0 && device.Name == tc.expectedDeviceName+"-gpu0" {
 								deviceFound = true
-								productName := device.Attributes["productName"]
-								if productName.StringValue != nil && len(tc.expectedProductName) > 0 && *productName.StringValue != tc.expectedProductName {
-									t.Errorf("unexpected ProductName, expected %s but got %s", tc.expectedProductName, *productName.StringValue)
+								for expectedKey, expectedValue := range tc.expectedAttributes {
+									value := device.Attributes[resourceapi.QualifiedName(expectedKey)]
+									if value.StringValue != nil && len(expectedKey) > 0 && *value.StringValue != expectedValue {
+										t.Errorf("unexpected ProductName, expected %s but got %s", expectedValue, *value.StringValue)
+									}
+								}
+								if tc.expectedAttributeFactors > 0 {
+									if len(device.Attributes) != tc.expectedAttributeFactors {
+										t.Errorf("unexpected attributes length, expected %d but got %d", tc.expectedAttributeFactors, len(device.Attributes))
+									}
 								}
 								for _, expectedBCFailure := range tc.expectedBCFailure {
 									var found bool
@@ -648,6 +720,13 @@ func TestCDIManagerGetAvailableNums(t *testing.T) {
 			modelName:      "DUMMY DEVICE",
 			expectedErr:    true,
 			expectedErrMsg: "FM available reserved resources API failed",
+		},
+		{
+			name:           "When available number of fabric devices are in excess of maximum limit",
+			machineUUID:    "00000000-0000-0000-0000-000000000000",
+			modelName:      "LimitExceededDevices",
+			expectedErr:    true,
+			expectedErrMsg: "FM available reserved resources exceeds 128",
 		},
 	}
 	for _, tc := range testCases {

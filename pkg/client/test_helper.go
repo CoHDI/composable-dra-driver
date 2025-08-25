@@ -18,6 +18,7 @@ package client
 
 import (
 	"cdi_dra/pkg/config"
+	ku "cdi_dra/pkg/kube_utils"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -32,13 +33,21 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
+	resourceapi "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	fakedynamic "k8s.io/client-go/dynamic/fake"
+	fakekube "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/utils/ptr"
 )
 
@@ -50,46 +59,6 @@ const (
 
 	clusterID1 = "00000000-0000-0000-0001-000000000000"
 )
-
-var deviceList = []string{"DEVICE 1", "DEVICE 2", "DEVICE 3"}
-
-func createTestServerCertificate(caCertData config.CertData) (certPEMBlock, keyPEMBlock []byte, err error) {
-	privateServerKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, nil, err
-	}
-	publicServerKey := privateServerKey.Public()
-
-	subjectServer := pkix.Name{
-		CommonName:         "server-composable-dra-dds-test",
-		OrganizationalUnit: []string{"CoHDI"},
-		Organization:       []string{"composable-dra-dds"},
-		Country:            []string{"JP"},
-	}
-	created := time.Now()
-	expire := created.Add(config.CA_EXPIRE)
-	serverTpl := &x509.Certificate{
-		SerialNumber: big.NewInt(123),
-		Subject:      subjectServer,
-		NotAfter:     expire,
-		NotBefore:    created,
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     []string{"localhost"},
-		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
-	}
-	derPrivateServerKey := x509.MarshalPKCS1PrivateKey(privateServerKey)
-	keyPEMBlock = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: derPrivateServerKey})
-
-	derServerCertificate, err := x509.CreateCertificate(rand.Reader, serverTpl, caCertData.CaTpl, publicServerKey, caCertData.PrivKey)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	certPEMBlock = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derServerCertificate})
-
-	return certPEMBlock, keyPEMBlock, nil
-}
 
 var testAccessToken string = "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":2069550000}`))
 
@@ -212,6 +181,18 @@ var testAvailableReservedResources = map[string][]FMAvailableReservedResources{
 		{
 			FabricID:            3,
 			ReservedResourceNum: 7,
+		},
+	},
+	config.FullLengthModel: {
+		{
+			FabricID:            1,
+			ReservedResourceNum: 128,
+		},
+	},
+	"LimitExceededDevices": {
+		{
+			FabricID:            1,
+			ReservedResourceNum: 200,
 		},
 	},
 }
@@ -363,6 +344,20 @@ func createTestNodeDetails(nodeCount int) []CMNodeDetails {
 									},
 								},
 							},
+							{
+								Type: "gpu",
+								Selector: CMSelector{
+									Expression: CMExpression{
+										Conditions: []Condition{
+											{
+												Column:   "model",
+												Operator: "eq",
+												Value:    config.FullLengthModel,
+											},
+										},
+									},
+								},
+							},
 						},
 					},
 				},
@@ -391,15 +386,13 @@ func createTestNodeDetails(nodeCount int) []CMNodeDetails {
 }
 
 func handleRequests(w http.ResponseWriter, r *http.Request) {
+	var written bool
 	if r.Method == "POST" {
 		body, _ := io.ReadAll(r.Body)
 		targetString := "client_id=0001&client_secret=secret&username=user&password=pass&scope=openid&response=id_token token&grant_type=password"
 		if string(body) == targetString {
 			if r.URL.Path == "/id_manager/realms/CDI_DRA_Test/protocol/openid-connect/token" {
-				response, _ := json.Marshal(testIMToken)
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(response))
+				written = writeResponse(w, http.StatusOK, testIMToken)
 			}
 			if r.URL.Path == "/id_manager/realms/Nil_Test/protocol/openid-connect/token" {
 				w.Header().Set("Content-Type", "application/json")
@@ -409,12 +402,30 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 				expiry := time.Now().Add(35 * time.Second)
 				timeTestIMToken := testIMToken
 				timeTestIMToken.AccessToken = "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"exp":%d}`, expiry.Unix())))
-				response, _ := json.Marshal(timeTestIMToken)
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(response))
-			} else {
-				w.WriteHeader(http.StatusNotFound)
+				written = writeResponse(w, http.StatusOK, timeTestIMToken)
+			}
+			if r.URL.Path == "/id_manager/realms/InvalidToken_Test/protocol/openid-connect/token" {
+				invalidToken := testIMToken
+				invalidToken.AccessToken = "token1"
+				written = writeResponse(w, http.StatusOK, invalidToken)
+			}
+			if r.URL.Path == "/id_manager/realms/Decode_Test/protocol/openid-connect/token" {
+				failedDecodeToken := testIMToken
+				failedDecodeToken.AccessToken = "token1.abc$"
+				written = writeResponse(w, http.StatusOK, failedDecodeToken)
+			}
+			if r.URL.Path == "/id_manager/realms/NotJson_Test/protocol/openid-connect/token" {
+				notJsonToken := testIMToken
+				notJsonToken.AccessToken = "token1.not-json"
+				written = writeResponse(w, http.StatusOK, notJsonToken)
+			}
+			if !written {
+				unSuccess := unsuccessfulResponse{
+					Detail: responseDetail{
+						Message: "IM credentials is not found",
+					},
+				}
+				writeResponse(w, http.StatusNotFound, unSuccess)
 			}
 		} else {
 			response := "certification error"
@@ -429,24 +440,15 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 				remainder := strings.TrimPrefix(r.URL.Path, "/fabric_manager/api/v1/machines")
 				if remainder == "" {
 					for key, value := range r.URL.Query() {
-						var response []byte
 						if key == "tenant_uuid" && value[0] == tenantID1 {
-							response, _ = json.Marshal(testMachineList1)
+							_ = writeResponse(w, http.StatusOK, testMachineList1)
 						}
 						if key == "tenant_uuid" && value[0] == tenantID2 {
-							response, _ = json.Marshal(testMachineList2)
-						}
-						if len(response) > 0 {
-							w.Header().Set("Content-Type", "application/json")
-							w.WriteHeader(http.StatusOK)
-							w.Write(response)
+							_ = writeResponse(w, http.StatusOK, testMachineList2)
 						}
 						if key == "tenant_uuid" && value[0] == tenantIDTimeOut {
 							time.Sleep(65 * time.Second)
-							response, _ := json.Marshal(testMachineList1)
-							w.Header().Set("Content-Type", "application/json")
-							w.WriteHeader(http.StatusOK)
-							w.Write(response)
+							_ = writeResponse(w, http.StatusOK, testMachineList1)
 						}
 						if key == "tenant_uuid" && value[0] == tenantIDNotFound {
 							w.WriteHeader(http.StatusNotFound)
@@ -455,7 +457,6 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 				}
 				if strings.HasSuffix(r.URL.Path, "/available-reserved-resources") {
 					muuid := strings.TrimSuffix(remainder, "/available-reserved-resources")
-					var response []byte
 					regex := regexp.MustCompile("^/[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
 					if regex.MatchString(muuid) {
 						index, _ := strconv.Atoi(string(muuid[len(muuid)-1]))
@@ -465,26 +466,26 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 							if value, exist := query["res_type"]; exist && value[0] == "gpu" {
 								if value, exist := query["condition"]; exist {
 									_ = json.Unmarshal([]byte(value[0]), &condition)
-									if condition.Column == "model" && condition.Operator == "eq" && slices.Contains(deviceList, condition.Value) {
-										response, _ = json.Marshal(testAvailableReservedResources[condition.Value][(index)%3])
-										w.Header().Set("Content-Type", "application/json")
-										w.WriteHeader(http.StatusOK)
-										w.Write(response)
+									if condition.Column == "model" && condition.Operator == "eq" {
+										if resources, exist := testAvailableReservedResources[condition.Value]; exist {
+											if len(resources) > 1 {
+												written = writeResponse(w, http.StatusOK, resources[(index)%3])
+											} else {
+												written = writeResponse(w, http.StatusOK, resources[0])
+											}
+										}
 									}
 								}
 							}
 						}
 					}
-					if len(response) == 0 {
+					if !written {
 						unSuccess := unsuccessfulResponse{
 							Detail: responseDetail{
 								Message: "FM available reserved resources API is failed",
 							},
 						}
-						response, _ = json.Marshal(unSuccess)
-						w.Header().Set("Content-Type", "application/json")
-						w.WriteHeader(http.StatusNotFound)
-						w.Write(response)
+						writeResponse(w, http.StatusNotFound, unSuccess)
 					}
 				}
 			}
@@ -504,48 +505,45 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 					if len(tenantId) != 0 {
 						if strings.HasSuffix(remainder, "/nodegroups") {
 							clusterId := strings.TrimSuffix(remainder, "/nodegroups")
-							var response []byte
 							if tenantId == tenantID1 {
 								if clusterId == "/"+clusterID1 {
-									response, _ = json.Marshal(testNodeGroups1)
+									written = writeResponse(w, http.StatusOK, testNodeGroups1)
 								}
 							}
 							if tenantId == tenantID2 {
 								if clusterId == "/"+clusterID1 {
-									response, _ = json.Marshal(testNodeGroups2)
+									written = writeResponse(w, http.StatusOK, testNodeGroups2)
 								}
-							}
-							if len(response) > 0 {
-								w.Header().Set("Content-Type", "application/json")
-								w.WriteHeader(http.StatusOK)
-								w.Write(response)
 							}
 						} else {
 							ngId := strings.TrimPrefix(remainder, "/"+clusterID1+"/nodegroups")
-							var response []byte
 							if tenantId == tenantID1 {
 								if ngId == "/10000000-0000-0000-0000-000000000000" {
-									response, _ = json.Marshal(testNodeGroupInfos1[0])
+									written = writeResponse(w, http.StatusOK, testNodeGroupInfos1[0])
 								}
 							}
 							if tenantId == tenantID2 {
 								if ngId == "/10000000-0000-0000-0000-000000000000" {
-									response, _ = json.Marshal(testNodeGroupInfos2[0])
+									written = writeResponse(w, http.StatusOK, testNodeGroupInfos2[0])
 								}
 								if ngId == "/20000000-0000-0000-0000-000000000000" {
-									response, _ = json.Marshal(testNodeGroupInfos2[1])
+									written = writeResponse(w, http.StatusOK, testNodeGroupInfos2[1])
 								}
 								if ngId == "/30000000-0000-0000-0000-000000000000" {
-									response, _ = json.Marshal(testNodeGroupInfos2[2])
+									written = writeResponse(w, http.StatusOK, testNodeGroupInfos2[2])
 								}
-							}
-							if len(response) > 0 {
-								w.Header().Set("Content-Type", "application/json")
-								w.WriteHeader(http.StatusOK)
-								w.Write(response)
 							}
 						}
 					}
+					if !written {
+						unSuccess := unsuccessfulResponse{
+							Detail: responseDetail{
+								Message: "CM node group list API is failed",
+							},
+						}
+						writeResponse(w, http.StatusNotFound, unSuccess)
+					}
+
 				}
 				if strings.HasPrefix(remainder, "/v3/tenants/") {
 					remainder = strings.TrimPrefix(remainder, "/v3/tenants/")
@@ -562,25 +560,73 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 					r := regexp.MustCompile("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
 					if r.MatchString(muuid) {
 						index, _ := strconv.Atoi(string(muuid[len(muuid)-1]))
-						var response []byte
 						if tenantId == tenantID1 {
-							response, _ = json.Marshal(testNodeDetails1)
+							written = writeResponse(w, http.StatusOK, testNodeDetails1)
 						}
 						if tenantId == tenantID2 {
 							if index <= len(testNodeDetails2) {
-								response, _ = json.Marshal(testNodeDetails2[index])
+								written = writeResponse(w, http.StatusOK, testNodeDetails2[index])
 							}
 						}
-						if len(response) > 0 {
-							w.Header().Set("Content-Type", "application/json")
-							w.WriteHeader(http.StatusOK)
-							w.Write(response)
+					}
+					if !written {
+						unSuccess := unsuccessfulResponse{
+							Detail: responseDetail{
+								Message: "CM node group list API is failed",
+							},
 						}
+						writeResponse(w, http.StatusNotFound, unSuccess)
 					}
 				}
 			}
 		}
 	}
+}
+
+func writeResponse(w http.ResponseWriter, status int, response interface{}) bool {
+	resByte, _ := json.Marshal(response)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(resByte)
+	return true
+}
+
+func createTestServerCertificate(caCertData config.CertData) (certPEMBlock, keyPEMBlock []byte, err error) {
+	privateServerKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, nil, err
+	}
+	publicServerKey := privateServerKey.Public()
+
+	subjectServer := pkix.Name{
+		CommonName:         "server-composable-dra-dds-test",
+		OrganizationalUnit: []string{"CoHDI"},
+		Organization:       []string{"composable-dra-dds"},
+		Country:            []string{"JP"},
+	}
+	created := time.Now()
+	expire := created.Add(config.CA_EXPIRE)
+	serverTpl := &x509.Certificate{
+		SerialNumber: big.NewInt(123),
+		Subject:      subjectServer,
+		NotAfter:     expire,
+		NotBefore:    created,
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     []string{"localhost"},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	derPrivateServerKey := x509.MarshalPKCS1PrivateKey(privateServerKey)
+	keyPEMBlock = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: derPrivateServerKey})
+
+	derServerCertificate, err := x509.CreateCertificate(rand.Reader, serverTpl, caCertData.CaTpl, publicServerKey, caCertData.PrivKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	certPEMBlock = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derServerCertificate})
+
+	return certPEMBlock, keyPEMBlock, nil
 }
 
 func CreateTLSServer(t testing.TB) (*httptest.Server, string) {
@@ -601,4 +647,82 @@ func CreateTLSServer(t testing.TB) (*httptest.Server, string) {
 	}
 	server.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
 	return server, caCertData.CertPem
+}
+
+type TestClientSet struct {
+	CDIClient       *CDIClient
+	KubeClient      *fakekube.Clientset
+	DynamicClient   *fakedynamic.FakeDynamicClient
+	KubeControllers *ku.KubeControllers
+}
+
+func BuildTestClientSet(t testing.TB, testSpec config.TestSpec) (TestClientSet, *httptest.Server, ku.TestControllerShutdownFunc) {
+	server, certPem := CreateTLSServer(t)
+	server.StartTLS()
+	parsedURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("failed to parse URL: %v", err)
+	}
+	if len(testSpec.CertPem) > 0 {
+		certPem = testSpec.CertPem
+	}
+	secret := config.CreateSecret(certPem, testSpec.CaseSecret)
+	testConfig := &config.TestConfig{
+		Spec:   testSpec,
+		Secret: secret,
+		Nodes:  make([]*v1.Node, config.TestNodeCount),
+		BMHs:   make([]*unstructured.Unstructured, config.TestNodeCount),
+	}
+	for i := 0; i < config.TestNodeCount; i++ {
+		testConfig.Nodes[i], testConfig.BMHs[i] = ku.CreateNodeBMHs(i, "test-namespace", testConfig.Spec.UseCapiBmh)
+	}
+
+	kubeclient, dynamicclient := ku.CreateTestClient(t, testConfig)
+	kubeclient.PrependReactor("create", "resourceslices", createResourceSliceCreateReactor())
+	controllers, stop := ku.CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+
+	var tenantID, clusterID string
+	if len(testSpec.TenantID) > 0 {
+		tenantID = testSpec.TenantID
+	} else {
+		tenantID = "00000000-0000-0002-0000-000000000000"
+	}
+	if len(testSpec.ClusterID) > 0 {
+		clusterID = testSpec.ClusterID
+	} else {
+		clusterID = "00000000-0000-0000-0001-000000000000"
+	}
+
+	config := &config.Config{
+		CDIEndpoint: parsedURL.Host,
+		TenantID:    tenantID,
+		ClusterID:   clusterID,
+	}
+	cdiClient, err := BuildCDIClient(config, controllers)
+	if err != nil {
+		t.Fatalf("failed to build cdi client: %v", err)
+	}
+
+	clientSet := TestClientSet{
+		CDIClient:       cdiClient,
+		KubeClient:      kubeclient,
+		DynamicClient:   dynamicclient,
+		KubeControllers: controllers,
+	}
+	return clientSet, server, stop
+}
+
+func createResourceSliceCreateReactor() func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
+	nameCounter := 0
+	var mutex sync.Mutex
+	return func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
+		mutex.Lock()
+		defer mutex.Unlock()
+		resourceslice := action.(k8stesting.CreateAction).GetObject().(*resourceapi.ResourceSlice)
+		if resourceslice.Name == "" && resourceslice.GenerateName != "" {
+			resourceslice.Name = fmt.Sprintf("%s%d", resourceslice.GenerateName, nameCounter)
+		}
+		nameCounter++
+		return false, nil, nil
+	}
 }

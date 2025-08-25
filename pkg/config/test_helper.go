@@ -55,25 +55,47 @@ const (
 	CaseDevInfoDeviceNotDNSLabel
 	CaseDevInfoCoexist100
 	CaseDevInfoCoexist101
-	CaseDevInfoAttr100
-	CaseDevInfoAttr101
-	CaseDevInfoAttrKey1000B
-	CaseDevInfoAttrKey1001B
-	CaseDevInfoAttrValue1000B
-	CaseDevInfoAttrValue1001B
-	CaseDevInfoDriver1000B
-	CaseDevInfoDriver1001B
+	CaseDevInfoAttr32
+	CaseDevInfoAttr33
+	CaseDevInfoAttrKey63B
+	CaseDevInfoAttrKey64B
+	CaseDevInfoAttrValue64B
+	CaseDevInfoAttrValue65B
+	CaseDevInfoDriver63B
+	CaseDevInfoDriver64B
 	CaseDevInfoEmptyDriver
 	CaseDevInfoEmptyModel
 	CaseDevInfoEmptyAttr
 	CaseDevInfoDuplicateIndex
 	CaseDevInfoDuplicateModel
 	CaseDevInfoDuplicateDevice
+	CaseDevInfoModelSymbol
+	CaseDevInfoFullLength
 
 	CaseLabelPrefix100B
 	CaseLabelPrefix101B
 	CaseLabelPrefixInvalid
 )
+
+const (
+	CaseSecretCorrect = iota + 1
+	CaseSecretTooLongUserName
+	CaseSecretTooLongPass
+	CaseSecretTooLongRealm
+	CaseSecretTooLongClientId
+	CaseSecretTooLongClientSecret
+	CaseSecretAlmostMaxUserName
+	CaseSecretTestTimeout
+	CaseSecretInvalidAccessToken
+	CaseSecretFailedDecodeToken
+	CaseSecretNotJsonToken
+)
+
+var FullLengthModel string = RandomString(1000)
+var FullLengthAttrKey string = RandomString(63) + "/" + RandomString(32)
+var FullLengthAttrValue string = RandomString(64)
+var FullLengthDriverName string = RandomString(63)
+var FullLengthDeviceName string = RandomString(50)
 
 var ExceededSecretInfo string = RandomString(1000)
 var UnExceededSecretInfo string = RandomString(999)
@@ -94,387 +116,213 @@ type TestSpec struct {
 	CaseDriverResource   int
 	CaseDeviceInfo       int
 	CaseDevice           int
+	CaseSecret           int
+	CertPem              string
+	TenantID             string
+	ClusterID            string
 }
 
 func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
+
+	devInfo0 := DeviceInfo{
+		Index:        1,
+		CDIModelName: "DEVICE 1",
+		DRAAttributes: map[string]string{
+			"productName": "TEST DEVICE 1",
+		},
+		DriverName:        "test-driver-1",
+		K8sDeviceName:     "test-device-1",
+		CanNotCoexistWith: []int{2, 3},
+	}
+	devInfo1 := DeviceInfo{
+		Index:        2,
+		CDIModelName: "DEVICE 2",
+		DRAAttributes: map[string]string{
+			"productName": "TEST DEVICE 2",
+		},
+		DriverName:        "test-driver-1",
+		K8sDeviceName:     "test-device-2",
+		CanNotCoexistWith: []int{1, 3},
+	}
+	devInfo2 := DeviceInfo{
+		Index:        3,
+		CDIModelName: "DEVICE 3",
+		DRAAttributes: map[string]string{
+			"productName": "TEST DEVICE 3",
+		},
+		DriverName:        "test-driver-2",
+		K8sDeviceName:     "test-device-3",
+		CanNotCoexistWith: []int{1, 2},
+	}
+
+	defaultDevInfos := []DeviceInfo{devInfo0, devInfo1, devInfo2}
+
+	devInfos := defaultDevInfos
+
 	switch devInfoCase {
-	case CaseDevInfoCorrect:
-		devInfo0 := DeviceInfo{
-			Index:        1,
-			CDIModelName: "DEVICE 1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-			DriverName:        "test-driver-1",
-			K8sDeviceName:     "test-device-1",
-			CanNotCoexistWith: []int{2, 3},
-		}
-		devInfo1 := DeviceInfo{
-			Index:        2,
-			CDIModelName: "DEVICE 2",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 2",
-			},
-			DriverName:        "test-driver-1",
-			K8sDeviceName:     "test-device-2",
-			CanNotCoexistWith: []int{1, 3},
-		}
-		devInfo2 := DeviceInfo{
-			Index:        3,
-			CDIModelName: "DEVICE 3",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 3",
-			},
-			DriverName:        "test-driver-2",
-			K8sDeviceName:     "test-device-3",
-			CanNotCoexistWith: []int{1, 2},
-		}
 
-		devInfos := []DeviceInfo{devInfo0, devInfo1, devInfo2}
-
-		return devInfos
 	case CaseDevInfoIndexMinus:
-		devInfo := DeviceInfo{
-			Index:         -1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
+		devInfo := devInfos[0]
+		devInfo.Index = -1
+		devInfos = []DeviceInfo{devInfo}
+
 	case CaseDevInfoIndexZero:
-		devInfo := DeviceInfo{
-			Index:         0,
-			CDIModelName:  "DEVICE1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
+		devInfo := devInfos[0]
+		devInfo.Index = 0
+		devInfos = []DeviceInfo{devInfo}
+
 	case CaseDevInfoIndex10000:
-		devInfo := DeviceInfo{
-			Index:         10000,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
+		devInfo := devInfos[0]
+		devInfo.Index = 10000
+		devInfos = []DeviceInfo{devInfo}
+
 	case CaseDevInfoIndex10001:
-		devInfo := DeviceInfo{
-			Index:         10001,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
+		devInfo := devInfos[0]
+		devInfo.Index = 10001
+		devInfos = []DeviceInfo{devInfo}
+
 	case CaseDevInfoModel1000B:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  RandomString(1000),
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
+		devInfo := devInfos[0]
+		devInfo.CDIModelName = RandomString(1000)
+		devInfos = []DeviceInfo{devInfo}
+
 	case CaseDevInfoModel1001B:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  RandomString(1001),
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
+		devInfo := devInfos[0]
+		devInfo.CDIModelName = RandomString(1001)
+		devInfos = []DeviceInfo{devInfo}
+
 	case CaseDevInfoDevice50B:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: RandomString(50),
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
+		devInfo := devInfos[0]
+		devInfo.K8sDeviceName = RandomString(50)
+		devInfos = []DeviceInfo{devInfo}
+
 	case CaseDevInfoDevice51B:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: RandomString(51),
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
+		devInfo := devInfos[0]
+		devInfo.K8sDeviceName = RandomString(51)
+		devInfos = []DeviceInfo{devInfo}
+
 	case CaseDevInfoDeviceNotDNSLabel:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "TEST-DEVICE-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
+		devInfo := devInfos[0]
+		devInfo.K8sDeviceName = "TEST-DEVICE-1"
+		devInfos = []DeviceInfo{devInfo}
+
 	case CaseDevInfoCoexist100:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
+		devInfo := devInfos[0]
+		devInfo.CanNotCoexistWith = []int{}
 		for i := 2; i < 102; i++ {
 			devInfo.CanNotCoexistWith = append(devInfo.CanNotCoexistWith, i)
 		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
+		devInfos = []DeviceInfo{devInfo}
+
 	case CaseDevInfoCoexist101:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
+		devInfo := devInfos[0]
+		devInfo.CanNotCoexistWith = []int{}
 		for i := 2; i < 103; i++ {
 			devInfo.CanNotCoexistWith = append(devInfo.CanNotCoexistWith, i)
 		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
-	case CaseDevInfoAttr100:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
-		for i := 0; i < 99; i++ {
+		devInfos = []DeviceInfo{devInfo}
+
+	case CaseDevInfoAttr32:
+		devInfo := devInfos[0]
+		for i := 0; i < 31; i++ {
 			devInfo.DRAAttributes[strconv.Itoa(i)] = "attribute-" + strconv.Itoa(i)
 		}
-		deviInfos := []DeviceInfo{devInfo}
-		return deviInfos
-	case CaseDevInfoAttr101:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
-		for i := 0; i < 100; i++ {
+		devInfos = []DeviceInfo{devInfo}
+
+	case CaseDevInfoAttr33:
+		devInfo := devInfos[0]
+		for i := 0; i < 32; i++ {
 			devInfo.DRAAttributes[strconv.Itoa(i)] = "attribute-" + strconv.Itoa(i)
 		}
-		deviInfos := []DeviceInfo{devInfo}
-		return deviInfos
-	case CaseDevInfoAttrKey1000B:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName":      "TEST DEVICE 1",
-				RandomString(1000): "key length test",
-			},
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
-	case CaseDevInfoAttrKey1001B:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName":      "TEST DEVICE 1",
-				RandomString(1001): "key length test",
-			},
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
-	case CaseDevInfoAttrValue1000B:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": RandomString(1000),
-			},
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
-	case CaseDevInfoAttrValue1001B:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": RandomString(1001),
-			},
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
-	case CaseDevInfoDriver1000B:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    RandomString(1000),
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
-	case CaseDevInfoDriver1001B:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    RandomString(1001),
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
+		devInfos = []DeviceInfo{devInfo}
+
+	case CaseDevInfoAttrKey63B:
+		devInfo := devInfos[0]
+		devInfo.DRAAttributes[RandomString(63)] = "key length test"
+		devInfos = []DeviceInfo{devInfo}
+
+	case CaseDevInfoAttrKey64B:
+		devInfo := devInfos[0]
+		devInfo.DRAAttributes[RandomString(64)] = "key length test"
+		devInfos = []DeviceInfo{devInfo}
+
+	case CaseDevInfoAttrValue64B:
+		devInfo := devInfos[0]
+		devInfo.DRAAttributes["productName"] = RandomString(64)
+		devInfos = []DeviceInfo{devInfo}
+
+	case CaseDevInfoAttrValue65B:
+		devInfo := devInfos[0]
+		devInfo.DRAAttributes["productName"] = RandomString(65)
+		devInfos = []DeviceInfo{devInfo}
+
+	case CaseDevInfoDriver63B:
+		devInfo := devInfos[0]
+		devInfo.DriverName = RandomString(63)
+		devInfos = []DeviceInfo{devInfo}
+
+	case CaseDevInfoDriver64B:
+		devInfo := devInfos[0]
+		devInfo.DriverName = RandomString(64)
+		devInfos = []DeviceInfo{devInfo}
+
 	case CaseDevInfoEmptyDriver:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
+		devInfo := devInfos[0]
+		devInfo.DriverName = ""
+		devInfos = []DeviceInfo{devInfo}
+
 	case CaseDevInfoEmptyModel:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
+		devInfo := devInfos[0]
+		devInfo.CDIModelName = ""
+		devInfos = []DeviceInfo{devInfo}
+
 	case CaseDevInfoEmptyAttr:
-		devInfo := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "TEST DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			// draAttributes is empty
-		}
-		devInfos := []DeviceInfo{devInfo}
-		return devInfos
+		devInfo := devInfos[0]
+		devInfo.DRAAttributes = nil
+		devInfos = []DeviceInfo{devInfo}
+
 	case CaseDevInfoDuplicateIndex:
-		devInfo1 := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
-		devInfo2 := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 2",
-			DriverName:    "test-driver-2",
-			K8sDeviceName: "test-device-2",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 2",
-			},
-		}
-		devInfos := []DeviceInfo{devInfo1, devInfo2}
-		return devInfos
+		devInfo1 := devInfos[0]
+		devInfo2 := devInfos[1]
+		devInfo2.Index = 1
+		devInfos = []DeviceInfo{devInfo1, devInfo2}
+
 	case CaseDevInfoDuplicateModel:
-		devInfo1 := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-		}
-		devInfo2 := DeviceInfo{
-			Index:         2,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-2",
-			K8sDeviceName: "test-device-2",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 2",
-			},
-		}
-		devInfos := []DeviceInfo{devInfo1, devInfo2}
-		return devInfos
+		devInfo1 := devInfos[0]
+		devInfo2 := devInfos[1]
+		devInfo2.CDIModelName = "DEVICE 1"
+		devInfos = []DeviceInfo{devInfo1, devInfo2}
+
 	case CaseDevInfoDuplicateDevice:
-		devInfo1 := DeviceInfo{
-			Index:         1,
-			CDIModelName:  "DEVICE 1",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
+		devInfo1 := devInfos[0]
+		devInfo2 := devInfos[1]
+		devInfo2.K8sDeviceName = "test-device-1"
+		devInfos = []DeviceInfo{devInfo1, devInfo2}
+
+	case CaseDevInfoModelSymbol:
+		devInfo := devInfos[0]
+		devInfo.CDIModelName = "TEST_-/+.()#:*@_DEVICE"
+		devInfos = []DeviceInfo{devInfo}
+
+	case CaseDevInfoFullLength:
+		devInfo := DeviceInfo{
+			Index:         10000,
+			CDIModelName:  FullLengthModel,
+			DriverName:    FullLengthDriverName,
+			K8sDeviceName: FullLengthDeviceName,
 			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
+				"productName":     "TEST DEVICE 1",
+				FullLengthAttrKey: FullLengthAttrValue,
 			},
 		}
-		devInfo2 := DeviceInfo{
-			Index:         2,
-			CDIModelName:  "DEVICE 2",
-			DriverName:    "test-driver-1",
-			K8sDeviceName: "test-device-1",
-			DRAAttributes: map[string]string{
-				"productName": "TEST DEVICE 2",
-			},
+		for i := 0; i < 30; i++ {
+			devInfo.DRAAttributes[strconv.Itoa(i)] = "attribute-" + strconv.Itoa(i)
 		}
-		devInfos := []DeviceInfo{devInfo1, devInfo2}
-		return devInfos
+		devInfos = []DeviceInfo{devInfo}
+
 	default:
-		return nil
 	}
+	return devInfos
 }
 
 func CreateLabelPrefix(labelPrefixCase int) string {
@@ -486,7 +334,7 @@ func CreateLabelPrefix(labelPrefixCase int) string {
 	case CaseLabelPrefixInvalid:
 		return "-cohdi.com"
 	default:
-		return ""
+		return "cohdi.com"
 	}
 }
 
@@ -536,8 +384,8 @@ func CreateConfigMap() ([]*corev1.ConfigMap, error) {
 
 	cms := []*corev1.ConfigMap{cm0, cm1, cm2}
 
-	for devInfoCase := CaseDevInfoIndexMinus; devInfoCase <= CaseDevInfoDuplicateDevice; devInfoCase++ {
-		deviceInfos := CreateDeviceInfos(devInfoCase)
+	for caseNum := CaseDevInfoIndexMinus; caseNum <= CaseLabelPrefixInvalid; caseNum++ {
+		deviceInfos := CreateDeviceInfos(caseNum)
 		data, err := yaml.Marshal(deviceInfos)
 		if err != nil {
 			return nil, err
@@ -547,27 +395,12 @@ func CreateConfigMap() ([]*corev1.ConfigMap, error) {
 				Kind: "ConfigMap",
 			},
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      fmt.Sprintf("test-configmap-%d", devInfoCase),
+				Name:      fmt.Sprintf("test-configmap-%d", caseNum),
 				Namespace: "composable-dra",
 			},
 			Data: map[string]string{
-				DeviceInfoKey: string(data),
-			},
-		}
-		cms = append(cms, cm)
-	}
-	for labelPrefixCase := CaseLabelPrefix100B; labelPrefixCase <= CaseLabelPrefixInvalid; labelPrefixCase++ {
-		cm := &corev1.ConfigMap{
-			TypeMeta: metav1.TypeMeta{
-				Kind: "ConfigMap",
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      fmt.Sprintf("test-configmap-%d", labelPrefixCase),
-				Namespace: "composable-dra",
-			},
-			Data: map[string]string{
-				DeviceInfoKey:  string(data0),
-				LabelPrefixKey: CreateLabelPrefix(labelPrefixCase),
+				DeviceInfoKey:  string(data),
+				LabelPrefixKey: CreateLabelPrefix(caseNum),
 			},
 		}
 		cms = append(cms, cm)
@@ -584,81 +417,53 @@ func CreateSecret(certPem string, secretCase int) *corev1.Secret {
 		Name:      "composable-dra-secret",
 		Namespace: "composable-dra",
 	}
+
+	defaultSecret := &corev1.Secret{
+		TypeMeta:   secretType,
+		ObjectMeta: secretObject,
+		Data: map[string][]byte{
+			"username":      []byte("user"),
+			"password":      []byte("pass"),
+			"realm":         []byte("CDI_DRA_Test"),
+			"client_id":     []byte("0001"),
+			"client_secret": []byte("secret"),
+			"certificate":   []byte(certPem),
+		},
+	}
+
+	secret = defaultSecret
+
 	switch secretCase {
-	case 1:
-		secret = &corev1.Secret{
-			TypeMeta:   secretType,
-			ObjectMeta: secretObject,
-			Data: map[string][]byte{
-				"username":      []byte("user"),
-				"password":      []byte("pass"),
-				"realm":         []byte("CDI_DRA_Test"),
-				"client_id":     []byte("0001"),
-				"client_secret": []byte("secret"),
-				"certificate":   []byte(certPem),
-			},
-		}
-	case 2:
-		secret = &corev1.Secret{
-			TypeMeta:   secretType,
-			ObjectMeta: secretObject,
-			Data: map[string][]byte{
-				"username": []byte(ExceededSecretInfo),
-			},
-		}
-	case 3:
-		secret = &corev1.Secret{
-			TypeMeta:   secretType,
-			ObjectMeta: secretObject,
-			Data: map[string][]byte{
-				"password": []byte(ExceededSecretInfo),
-			},
-		}
-	case 4:
-		secret = &corev1.Secret{
-			TypeMeta:   secretType,
-			ObjectMeta: secretObject,
-			Data: map[string][]byte{
-				"realm": []byte(ExceededSecretInfo),
-			},
-		}
-	case 5:
-		secret = &corev1.Secret{
-			TypeMeta:   secretType,
-			ObjectMeta: secretObject,
-			Data: map[string][]byte{
-				"client_id": []byte(ExceededSecretInfo),
-			},
-		}
-	case 6:
-		secret = &corev1.Secret{
-			TypeMeta:   secretType,
-			ObjectMeta: secretObject,
-			Data: map[string][]byte{
-				"client_secret": []byte(ExceededSecretInfo),
-			},
-		}
-	case 7:
-		secret = &corev1.Secret{
-			TypeMeta:   secretType,
-			ObjectMeta: secretObject,
-			Data: map[string][]byte{
-				"username": []byte(UnExceededSecretInfo),
-			},
-		}
-	case 8:
-		secret = &corev1.Secret{
-			TypeMeta:   secretType,
-			ObjectMeta: secretObject,
-			Data: map[string][]byte{
-				"username":      []byte("user"),
-				"password":      []byte("pass"),
-				"realm":         []byte("Time_Test"),
-				"client_id":     []byte("0001"),
-				"client_secret": []byte("secret"),
-				"certificate":   []byte(certPem),
-			},
-		}
+
+	case CaseSecretTooLongUserName:
+		secret.Data["username"] = []byte(ExceededSecretInfo)
+
+	case CaseSecretTooLongPass:
+		secret.Data["password"] = []byte(ExceededSecretInfo)
+
+	case CaseSecretTooLongRealm:
+		secret.Data["realm"] = []byte(ExceededSecretInfo)
+
+	case CaseSecretTooLongClientId:
+		secret.Data["client_id"] = []byte(ExceededSecretInfo)
+
+	case CaseSecretTooLongClientSecret:
+		secret.Data["client_secret"] = []byte(ExceededSecretInfo)
+
+	case CaseSecretAlmostMaxUserName:
+		secret.Data["username"] = []byte(UnExceededSecretInfo)
+
+	case CaseSecretTestTimeout:
+		secret.Data["realm"] = []byte("Time_Test")
+
+	case CaseSecretInvalidAccessToken:
+		secret.Data["realm"] = []byte("InvalidToken_Test")
+
+	case CaseSecretFailedDecodeToken:
+		secret.Data["realm"] = []byte("Decode_Test")
+	case CaseSecretNotJsonToken:
+		secret.Data["realm"] = []byte("NotJson_Test")
+	default:
 	}
 	return secret
 }
