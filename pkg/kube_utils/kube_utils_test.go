@@ -164,8 +164,8 @@ func TestKubeControllersGetNode(t *testing.T) {
 			}
 
 			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
-			controllers, stop := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
-			defer stop()
+			controllers, stopController := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			defer stopController()
 
 			node, err := controllers.GetNode(tc.nodeName)
 			if tc.expectedErr {
@@ -228,8 +228,8 @@ func TestKubeControllersGetConfigMap(t *testing.T) {
 	}
 
 	kubeclient, dynamicclient := CreateTestClient(t, testConfig)
-	controllers, stop := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
-	defer stop()
+	controllers, stopController := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+	defer stopController()
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -301,8 +301,8 @@ func TestKubeControllersGetSecret(t *testing.T) {
 				Secret: secret,
 			}
 			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
-			controllers, stop := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
-			defer stop()
+			controllers, stopController := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			defer stopController()
 			secret, err := controllers.GetSecret("composable-dra/composable-dra-secret")
 			if tc.expectedErr {
 				if err == nil {
@@ -375,8 +375,8 @@ func TestKubeControllersListProviderIDs(t *testing.T) {
 			}
 
 			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
-			controllers, stop := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
-			defer stop()
+			controllers, stopController := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			defer stopController()
 
 			providerIDs, err := controllers.ListProviderIDs()
 			if tc.expectedErr {
@@ -435,8 +435,8 @@ func TestKubeControllersFindNodeNameByProviderID(t *testing.T) {
 			}
 
 			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
-			controllers, stop := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
-			defer stop()
+			controllers, stopController := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			defer stopController()
 
 			nodeName, err := controllers.FindNodeNameByProviderID(normalizedProviderID(tc.providerID))
 			if tc.expectedErr {
@@ -487,8 +487,8 @@ func TestKubeControllersFindMachineUUIDByProviderID(t *testing.T) {
 			}
 
 			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
-			controllers, stop := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
-			defer stop()
+			controllers, stopController := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			defer stopController()
 
 			muuid, err := controllers.FindMachineUUIDByProviderID(normalizedProviderString(tc.providerID))
 			if tc.expectedErr {
