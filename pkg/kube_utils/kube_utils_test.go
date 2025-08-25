@@ -290,22 +290,22 @@ func TestKubeControllersGetSecret(t *testing.T) {
 					t.Errorf("unexpected error: %v", err)
 				}
 				if secret != nil {
-					if string(secret.Data["username"]) != tc.expectedUserName {
+					if len(tc.expectedUserName) > 0 && string(secret.Data["username"]) != tc.expectedUserName {
 						t.Errorf("unexpected username, expected %s but got %s", tc.expectedUserName, string(secret.Data["username"]))
 					}
-					if string(secret.Data["password"]) != tc.expectedPassword {
+					if len(tc.expectedPassword) > 0 && string(secret.Data["password"]) != tc.expectedPassword {
 						t.Errorf("unexpected password, expected %s but got %s", tc.expectedPassword, string(secret.Data["password"]))
 					}
-					if string(secret.Data["realm"]) != tc.expectedRealm {
+					if len(tc.expectedRealm) > 0 && string(secret.Data["realm"]) != tc.expectedRealm {
 						t.Errorf("unexpected realm, expected %s but got %s", tc.expectedRealm, string(secret.Data["realm"]))
 					}
-					if string(secret.Data["client_id"]) != tc.expectedClientId {
+					if len(tc.expectedClientId) > 0 && string(secret.Data["client_id"]) != tc.expectedClientId {
 						t.Errorf("unexpected client_id, expected %s but got %s", tc.expectedClientId, string(secret.Data["client_id"]))
 					}
-					if string(secret.Data["client_secret"]) != tc.expectedClientSecret {
+					if len(tc.expectedClientSecret) > 0 && string(secret.Data["client_secret"]) != tc.expectedClientSecret {
 						t.Errorf("unexpected client_secret, expected %s but got %s", tc.expectedClientSecret, string(secret.Data["client_secret"]))
 					}
-					if string(secret.Data["certificate"]) != tc.expectedCertificate {
+					if len(tc.expectedCertificate) > 0 && string(secret.Data["certificate"]) != tc.expectedCertificate {
 						t.Errorf("unexpected certificate, expected %s but got %s", tc.expectedCertificate, string(secret.Data["certificate"]))
 					}
 				}

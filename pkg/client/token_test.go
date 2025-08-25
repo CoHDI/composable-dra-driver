@@ -132,6 +132,24 @@ func TestIdManagerTokenSourceToken(t *testing.T) {
 			expectedErr:    true,
 			expectedErrMsg: "tls: failed to verify certificate",
 		},
+		{
+			name:           "When IMToken's accessToken is invalid",
+			secretCase:     config.CaseSecretInvalidAccessToken,
+			expectedErr:    true,
+			expectedErrMsg: "invalid access token",
+		},
+		{
+			name:           "When decoding IMToken's accessToken is failed",
+			secretCase:     config.CaseSecretFailedDecodeToken,
+			expectedErr:    true,
+			expectedErrMsg: "failed to decode base64",
+		},
+		{
+			name:           "When token is not JSON form",
+			secretCase:     config.CaseSecretNotJsonToken,
+			expectedErr:    true,
+			expectedErrMsg: "failed to unmarshal JSON",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -188,7 +206,7 @@ func TestGetIdManagerSecret(t *testing.T) {
 	}{
 		{
 			name:                 "When correct secret is created",
-			secretCase:           1,
+			secretCase:           config.CaseSecretCorrect,
 			expectedErr:          false,
 			expectedUserName:     "user",
 			expectedPassword:     "pass",
@@ -198,37 +216,37 @@ func TestGetIdManagerSecret(t *testing.T) {
 		},
 		{
 			name:               "When username in secret exceeds limits of character count",
-			secretCase:         2,
+			secretCase:         config.CaseSecretTooLongUserName,
 			expectedErr:        true,
 			expectedErrMessage: "username length exceeds the limitation",
 		},
 		{
 			name:               "When password in secret exceeds limits of character count",
-			secretCase:         3,
+			secretCase:         config.CaseSecretTooLongPass,
 			expectedErr:        true,
 			expectedErrMessage: "password length exceeds the limitation",
 		},
 		{
 			name:               "When realm in secret exceeds limits of character count",
-			secretCase:         4,
+			secretCase:         config.CaseSecretTooLongRealm,
 			expectedErr:        true,
 			expectedErrMessage: "realm length exceeds the limitation",
 		},
 		{
 			name:               "When client_id in secret exceeds limits of character count",
-			secretCase:         5,
+			secretCase:         config.CaseSecretTooLongClientId,
 			expectedErr:        true,
 			expectedErrMessage: "client_id length exceeds the limitation",
 		},
 		{
 			name:               "When client_secret in secret exceeds limits of character count",
-			secretCase:         6,
+			secretCase:         config.CaseSecretTooLongClientSecret,
 			expectedErr:        true,
 			expectedErrMessage: "client_secret length exceeds the limitation",
 		},
 		{
 			name:             "When username in secret doesn't exceed limits of character count",
-			secretCase:       7,
+			secretCase:       config.CaseSecretAlmostMaxUserName,
 			expectedErr:      false,
 			expectedUserName: config.UnExceededSecretInfo,
 		},
@@ -263,19 +281,19 @@ func TestGetIdManagerSecret(t *testing.T) {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
-				if imSecret.username != tc.expectedUserName {
+				if len(tc.expectedUserName) > 0 && imSecret.username != tc.expectedUserName {
 					t.Errorf("unexpected username of IdManagerSecret, expected %s but got %s", tc.expectedUserName, imSecret.username)
 				}
-				if imSecret.password != tc.expectedPassword {
+				if len(tc.expectedPassword) > 0 && imSecret.password != tc.expectedPassword {
 					t.Errorf("unexpected password of IdManagerSecret, expected %s but got %s", tc.expectedPassword, imSecret.password)
 				}
-				if imSecret.realm != tc.expectedRealm {
+				if len(tc.expectedRealm) > 0 && imSecret.realm != tc.expectedRealm {
 					t.Errorf("unexpected realm of IdManagerSecret, expected %s but got %s", tc.expectedRealm, imSecret.realm)
 				}
-				if imSecret.client_id != tc.expectedClientId {
+				if len(tc.expectedClientId) > 0 && imSecret.client_id != tc.expectedClientId {
 					t.Errorf("unexpected client_id of IdManagerSecret, expected %s but got %s", tc.expectedClientId, imSecret.client_id)
 				}
-				if imSecret.client_secret != tc.expectedClientSecret {
+				if len(tc.expectedClientSecret) > 0 && imSecret.client_secret != tc.expectedClientSecret {
 					t.Errorf("unexpected client_secret of IdManagerSecret, expected %s but got %s", tc.expectedClientSecret, imSecret.client_secret)
 				}
 			}

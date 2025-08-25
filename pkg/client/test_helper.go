@@ -386,12 +386,13 @@ func createTestNodeDetails(nodeCount int) []CMNodeDetails {
 }
 
 func handleRequests(w http.ResponseWriter, r *http.Request) {
+	var written bool
 	if r.Method == "POST" {
 		body, _ := io.ReadAll(r.Body)
 		targetString := "client_id=0001&client_secret=secret&username=user&password=pass&scope=openid&response=id_token token&grant_type=password"
 		if string(body) == targetString {
 			if r.URL.Path == "/id_manager/realms/CDI_DRA_Test/protocol/openid-connect/token" {
-				_ = writeResponse(w, http.StatusOK, testIMToken)
+				written = writeResponse(w, http.StatusOK, testIMToken)
 			}
 			if r.URL.Path == "/id_manager/realms/Nil_Test/protocol/openid-connect/token" {
 				w.Header().Set("Content-Type", "application/json")
@@ -401,9 +402,30 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 				expiry := time.Now().Add(35 * time.Second)
 				timeTestIMToken := testIMToken
 				timeTestIMToken.AccessToken = "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"exp":%d}`, expiry.Unix())))
-				_ = writeResponse(w, http.StatusOK, timeTestIMToken)
-			} else {
-				w.WriteHeader(http.StatusNotFound)
+				written = writeResponse(w, http.StatusOK, timeTestIMToken)
+			}
+			if r.URL.Path == "/id_manager/realms/InvalidToken_Test/protocol/openid-connect/token" {
+				invalidToken := testIMToken
+				invalidToken.AccessToken = "token1"
+				written = writeResponse(w, http.StatusOK, invalidToken)
+			}
+			if r.URL.Path == "/id_manager/realms/Decode_Test/protocol/openid-connect/token" {
+				failedDecodeToken := testIMToken
+				failedDecodeToken.AccessToken = "token1.abc$"
+				written = writeResponse(w, http.StatusOK, failedDecodeToken)
+			}
+			if r.URL.Path == "/id_manager/realms/NotJson_Test/protocol/openid-connect/token" {
+				notJsonToken := testIMToken
+				notJsonToken.AccessToken = "token1.not-json"
+				written = writeResponse(w, http.StatusOK, notJsonToken)
+			}
+			if !written {
+				unSuccess := unsuccessfulResponse{
+					Detail: responseDetail{
+						Message: "IM credentials is not found",
+					},
+				}
+				writeResponse(w, http.StatusNotFound, unSuccess)
 			}
 		} else {
 			response := "certification error"
@@ -414,7 +436,6 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == "GET" {
 		if r.Header.Get("Authorization") == fmt.Sprintf("Bearer %s", testAccessToken) {
-			var written bool
 			if strings.HasPrefix(r.URL.Path, "/fabric_manager/api/v1/machines") {
 				remainder := strings.TrimPrefix(r.URL.Path, "/fabric_manager/api/v1/machines")
 				if remainder == "" {
