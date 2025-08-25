@@ -267,7 +267,9 @@ func TestKubeControllersGetSecret(t *testing.T) {
 		name                 string
 		certPem              string
 		secretCase           int
+		secretName           string
 		expectedErr          bool
+		expectedErrMsg       string
 		expectedUserName     string
 		expectedPassword     string
 		expectedRealm        string
@@ -278,7 +280,8 @@ func TestKubeControllersGetSecret(t *testing.T) {
 		{
 			name:                 "When correct Secret is obtained as expected",
 			certPem:              caData.CertPem,
-			secretCase:           1,
+			secretCase:           config.CaseSecretCorrect,
+			secretName:           "composable-dra/composable-dra-secret",
 			expectedErr:          false,
 			expectedUserName:     "user",
 			expectedPassword:     "pass",
@@ -289,9 +292,17 @@ func TestKubeControllersGetSecret(t *testing.T) {
 		},
 		{
 			name:             "When Secret has username which exceeds the limit",
-			secretCase:       2,
+			secretCase:       config.CaseSecretTooLongUserName,
+			secretName:       "composable-dra/composable-dra-secret",
 			expectedErr:      false,
 			expectedUserName: config.ExceededSecretInfo,
+		},
+		{
+			name:           "When specified Secret is not existed",
+			secretCase:     config.CaseSecretCorrect,
+			secretName:     "non-exist-secret",
+			expectedErr:    true,
+			expectedErrMsg: "not exists secret",
 		},
 	}
 	for _, tc := range testCases {
@@ -303,10 +314,13 @@ func TestKubeControllersGetSecret(t *testing.T) {
 			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
 			controllers, stopController := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
 			defer stopController()
-			secret, err := controllers.GetSecret("composable-dra/composable-dra-secret")
+			secret, err := controllers.GetSecret(tc.secretName)
 			if tc.expectedErr {
 				if err == nil {
 					t.Error("expected error, but got none")
+				}
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
 				if err != nil {
