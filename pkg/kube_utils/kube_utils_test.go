@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -34,25 +35,37 @@ func init() {
 
 func TestGroupVersionHasResource(t *testing.T) {
 	testCases := []struct {
-		name         string
-		DRAEnable    bool
-		groupVersion string
-		resourceName string
-		expectedErr  bool
+		name              string
+		DRAEnable         bool
+		groupVersion      string
+		resourceName      string
+		expectedAvailable bool
+		expectedErr       bool
+		expectedErrMsg    string
 	}{
 		{
-			name:         "When cofirming DRA resource exists",
-			DRAEnable:    true,
-			groupVersion: "resource.k8s.io/v1",
-			resourceName: "resourceslices",
-			expectedErr:  false,
+			name:              "When cofirming DRA resource exists",
+			DRAEnable:         true,
+			groupVersion:      "resource.k8s.io/v1",
+			resourceName:      "resourceslices",
+			expectedAvailable: true,
+			expectedErr:       false,
 		},
 		{
-			name:         "When specifying not existed resource",
-			DRAEnable:    true,
-			groupVersion: "dummy.k8s.io/v1",
-			resourceName: "dummy",
-			expectedErr:  true,
+			name:           "When specifying not existed group",
+			DRAEnable:      true,
+			groupVersion:   "dummy.k8s.io/v1",
+			resourceName:   "dummy",
+			expectedErr:    true,
+			expectedErrMsg: "the server could not find the requested resource",
+		},
+		{
+			name:              "When specifying existed group but not existed resource",
+			DRAEnable:         true,
+			groupVersion:      "resource.k8s.io/v1",
+			resourceName:      "dummy",
+			expectedAvailable: false,
+			expectedErr:       false,
 		},
 	}
 	for _, tc := range testCases {
@@ -68,11 +81,14 @@ func TestGroupVersionHasResource(t *testing.T) {
 				if err == nil {
 					t.Errorf("expected error, but got none")
 				}
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
-				if !available {
+				if available != tc.expectedAvailable {
 					t.Errorf("expected the resource %s is available but got unavailable", tc.resourceName)
 				}
 			}
