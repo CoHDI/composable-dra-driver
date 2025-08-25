@@ -188,8 +188,9 @@ func TestKubeControllersGetNode(t *testing.T) {
 
 func TestKubeControllersGetConfigMap(t *testing.T) {
 	type testConfigMap struct {
-		name      string
-		namespace string
+		name        string
+		namespace   string
+		labelPrefix string
 	}
 	testCases := []struct {
 		name              string
@@ -199,9 +200,9 @@ func TestKubeControllersGetConfigMap(t *testing.T) {
 	}{
 		{
 			name:  "When correct ConfigMap is obtained as expected",
-			cmkey: "cdi-dra-dds/test-configmap-1",
+			cmkey: "cdi-dra-dds/test-configmap-0",
 			expectedConfigMap: testConfigMap{
-				name:      "test-configmap-1",
+				name:      "test-configmap-0",
 				namespace: "cdi-dra-dds",
 			},
 			expectedErr: false,
@@ -245,6 +246,12 @@ func TestKubeControllersGetConfigMap(t *testing.T) {
 			if cm != nil {
 				if cm.Name != tc.expectedConfigMap.name {
 					t.Errorf("expected %q, got %q", tc.expectedConfigMap.name, cm.Name)
+				}
+				if cm.Namespace != tc.expectedConfigMap.namespace {
+					t.Errorf("expected %q, got %q", tc.expectedConfigMap.namespace, cm.Namespace)
+				}
+				if cm.Data[config.LabelPrefixKey] != tc.expectedConfigMap.labelPrefix {
+					t.Errorf("expected %q, got %q", tc.expectedConfigMap.labelPrefix, cm.Data[config.LabelPrefixKey])
 				}
 			}
 		})
