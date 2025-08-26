@@ -491,11 +491,13 @@ func TestKubeControllersFindNodeNameByProviderID(t *testing.T) {
 
 func TestKubeControllersFindMachineUUIDByProviderID(t *testing.T) {
 	testCases := []struct {
-		name                string
-		nodeCount           int
-		providerID          string
-		expectedErr         bool
-		expectedMachineUUID string
+		name                 string
+		nodeCount            int
+		providerID           string
+		deleteBmhMachineUUID string
+		deleteBmhAnnotation  string
+		expectedErr          bool
+		expectedMachineUUID  string
 	}{
 		{
 			name:                "When correct machine UUID is obtained as expected if useCapiBmh is true",
@@ -508,6 +510,22 @@ func TestKubeControllersFindMachineUUIDByProviderID(t *testing.T) {
 			name:                "When non-existent provider id is specified",
 			nodeCount:           1,
 			providerID:          "non-existent-provider-id",
+			expectedErr:         false,
+			expectedMachineUUID: "",
+		},
+		{
+			name:                 "When node has no machine uuid",
+			nodeCount:            1,
+			providerID:           "00000000-0000-0000-0000-000000000000",
+			deleteBmhMachineUUID: "test-bmh-0",
+			expectedErr:          false,
+			expectedMachineUUID:  "",
+		},
+		{
+			name:                "When node has no annotations",
+			nodeCount:           1,
+			providerID:          "00000000-0000-0000-0000-000000000000",
+			deleteBmhAnnotation: "test-bmh-0",
 			expectedErr:         false,
 			expectedMachineUUID: "",
 		},
@@ -526,7 +544,14 @@ func TestKubeControllersFindMachineUUIDByProviderID(t *testing.T) {
 			for i := 0; i < tc.nodeCount; i++ {
 				testConfig.Nodes[i], testConfig.BMHs[i] = CreateNodeBMHs(i, "test-namespace", testConfig.Spec.UseCapiBmh)
 			}
-
+			for _, bmh := range testConfig.BMHs {
+				if bmh.GetName() == tc.deleteBmhMachineUUID {
+					unstructured.RemoveNestedField(bmh.UnstructuredContent(), "metadata", "annotations", "cluster-manager.cdi.io/machine")
+				}
+				if bmh.GetName() == tc.deleteBmhAnnotation {
+					unstructured.RemoveNestedField(bmh.UnstructuredContent(), "metadata", "annotations")
+				}
+			}
 			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
 			controllers, stopController := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
 			defer stopController()
