@@ -438,10 +438,10 @@ func TestKubeControllersFindNodeNameByProviderID(t *testing.T) {
 			expectedNodeName: "test-node-1",
 		},
 		{
-			name:             "When non-exist provider ID is specified",
+			name:             "When non-existent provider ID is specified",
 			nodeCount:        1,
 			useCapiBmh:       false,
-			providerID:       "non-exist-provider-id",
+			providerID:       "non-existent-provider-id",
 			expectedErr:      false,
 			expectedNodeName: "",
 		},
@@ -491,6 +491,13 @@ func TestKubeControllersFindMachineUUIDByProviderID(t *testing.T) {
 			providerID:          "00000000-0000-0000-0000-000000000000",
 			expectedErr:         false,
 			expectedMachineUUID: "00000000-0000-0000-0000-000000000000",
+		},
+		{
+			name:                "When non-existent provider id is specified",
+			nodeCount:           1,
+			providerID:          "non-existent-provider-id",
+			expectedErr:         false,
+			expectedMachineUUID: "",
 		},
 	}
 
