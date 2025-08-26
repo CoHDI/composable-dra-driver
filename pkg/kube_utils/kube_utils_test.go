@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -387,6 +388,17 @@ func TestKubeControllersListProviderIDs(t *testing.T) {
 			for i := 0; i < tc.nodeCount; i++ {
 				testConfig.Nodes[i], testConfig.BMHs[i] = CreateNodeBMHs(i, "test-namespace", tc.useCapiBmh)
 			}
+
+			// Add node without provider id
+			node := &corev1.Node{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Node",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-node-has-no-provider-id",
+				},
+			}
+			testConfig.Nodes = append(testConfig.Nodes, node)
 
 			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
 			controllers, stopController := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
