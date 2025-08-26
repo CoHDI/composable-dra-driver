@@ -437,6 +437,14 @@ func TestKubeControllersFindNodeNameByProviderID(t *testing.T) {
 			expectedErr:      false,
 			expectedNodeName: "test-node-1",
 		},
+		{
+			name:             "When non-exist provider ID is specified",
+			nodeCount:        1,
+			useCapiBmh:       false,
+			providerID:       "non-exist-provider-id",
+			expectedErr:      false,
+			expectedNodeName: "",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
