@@ -814,7 +814,7 @@ func TestCDIManagerGetAvailableNums(t *testing.T) {
 				if err == nil {
 					t.Error("expected error, but got none")
 				}
-				if !strings.Contains(err.Error(), tc.expectedErrMsg) {
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
 					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
@@ -832,7 +832,9 @@ func TestCDIManagerGetAvailableNums(t *testing.T) {
 func TestCDIManagerGetNodeGroups(t *testing.T) {
 	testCases := []struct {
 		name                    string
+		tenantId                string
 		expectedErr             bool
+		expectedErrMsg          string
 		expectedNodeGroupLength int
 	}{
 		{
@@ -840,11 +842,18 @@ func TestCDIManagerGetNodeGroups(t *testing.T) {
 			expectedErr:             false,
 			expectedNodeGroupLength: 3,
 		},
+		{
+			name:           "When node groups API is failed",
+			tenantId:       "00000000-0000-0404-0000-000000000000",
+			expectedErr:    true,
+			expectedErrMsg: "CM node groups API failed",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
 				DRAenabled: true,
+				TenantID:   tc.tenantId,
 			}
 			m, server, stop := createTestManager(t, testSpec)
 			defer stop()
@@ -854,6 +863,9 @@ func TestCDIManagerGetNodeGroups(t *testing.T) {
 			if tc.expectedErr {
 				if err == nil {
 					t.Error("expected error, but got none")
+				}
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
 				if err != nil {
