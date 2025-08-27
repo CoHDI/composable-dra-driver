@@ -21,9 +21,11 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -34,25 +36,37 @@ func init() {
 
 func TestGroupVersionHasResource(t *testing.T) {
 	testCases := []struct {
-		name         string
-		DRAEnable    bool
-		groupVersion string
-		resourceName string
-		expectedErr  bool
+		name              string
+		DRAEnable         bool
+		groupVersion      string
+		resourceName      string
+		expectedAvailable bool
+		expectedErr       bool
+		expectedErrMsg    string
 	}{
 		{
-			name:         "When cofirming DRA resource exists",
-			DRAEnable:    true,
-			groupVersion: "resource.k8s.io/v1",
-			resourceName: "resourceslices",
-			expectedErr:  false,
+			name:              "When cofirming DRA resource exists",
+			DRAEnable:         true,
+			groupVersion:      "resource.k8s.io/v1",
+			resourceName:      "resourceslices",
+			expectedAvailable: true,
+			expectedErr:       false,
 		},
 		{
-			name:         "When specifying not existed resource",
-			DRAEnable:    true,
-			groupVersion: "dummy.k8s.io/v1",
-			resourceName: "dummy",
-			expectedErr:  true,
+			name:           "When specifying not existed group",
+			DRAEnable:      true,
+			groupVersion:   "dummy.k8s.io/v1",
+			resourceName:   "dummy",
+			expectedErr:    true,
+			expectedErrMsg: "the server could not find the requested resource",
+		},
+		{
+			name:              "When specifying existed group but not existed resource",
+			DRAEnable:         true,
+			groupVersion:      "resource.k8s.io/v1",
+			resourceName:      "dummy",
+			expectedAvailable: false,
+			expectedErr:       false,
 		},
 	}
 	for _, tc := range testCases {
@@ -68,11 +82,14 @@ func TestGroupVersionHasResource(t *testing.T) {
 				if err == nil {
 					t.Errorf("expected error, but got none")
 				}
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
-				if !available {
+				if available != tc.expectedAvailable {
 					t.Errorf("expected the resource %s is available but got unavailable", tc.resourceName)
 				}
 			}
@@ -148,8 +165,8 @@ func TestKubeControllersGetNode(t *testing.T) {
 			}
 
 			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
-			controllers, stop := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
-			defer stop()
+			controllers, stopController := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			defer stopController()
 
 			node, err := controllers.GetNode(tc.nodeName)
 			if tc.expectedErr {
@@ -172,8 +189,9 @@ func TestKubeControllersGetNode(t *testing.T) {
 
 func TestKubeControllersGetConfigMap(t *testing.T) {
 	type testConfigMap struct {
-		name      string
-		namespace string
+		name        string
+		namespace   string
+		labelPrefix string
 	}
 	testCases := []struct {
 		name              string
@@ -183,9 +201,9 @@ func TestKubeControllersGetConfigMap(t *testing.T) {
 	}{
 		{
 			name:  "When correct ConfigMap is obtained as expected",
-			cmkey: "cdi-dra-dds/test-configmap-1",
+			cmkey: "cdi-dra-dds/test-configmap-0",
 			expectedConfigMap: testConfigMap{
-				name:      "test-configmap-1",
+				name:      "test-configmap-0",
 				namespace: "cdi-dra-dds",
 			},
 			expectedErr: false,
@@ -211,8 +229,8 @@ func TestKubeControllersGetConfigMap(t *testing.T) {
 	}
 
 	kubeclient, dynamicclient := CreateTestClient(t, testConfig)
-	controllers, stop := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
-	defer stop()
+	controllers, stopController := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+	defer stopController()
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -230,6 +248,12 @@ func TestKubeControllersGetConfigMap(t *testing.T) {
 				if cm.Name != tc.expectedConfigMap.name {
 					t.Errorf("expected %q, got %q", tc.expectedConfigMap.name, cm.Name)
 				}
+				if cm.Namespace != tc.expectedConfigMap.namespace {
+					t.Errorf("expected %q, got %q", tc.expectedConfigMap.namespace, cm.Namespace)
+				}
+				if cm.Data[config.LabelPrefixKey] != tc.expectedConfigMap.labelPrefix {
+					t.Errorf("expected %q, got %q", tc.expectedConfigMap.labelPrefix, cm.Data[config.LabelPrefixKey])
+				}
 			}
 		})
 	}
@@ -244,7 +268,9 @@ func TestKubeControllersGetSecret(t *testing.T) {
 		name                 string
 		certPem              string
 		secretCase           int
+		secretName           string
 		expectedErr          bool
+		expectedErrMsg       string
 		expectedUserName     string
 		expectedPassword     string
 		expectedRealm        string
@@ -255,7 +281,8 @@ func TestKubeControllersGetSecret(t *testing.T) {
 		{
 			name:                 "When correct Secret is obtained as expected",
 			certPem:              caData.CertPem,
-			secretCase:           1,
+			secretCase:           config.CaseSecretCorrect,
+			secretName:           "composable-dra/composable-dra-secret",
 			expectedErr:          false,
 			expectedUserName:     "user",
 			expectedPassword:     "pass",
@@ -266,9 +293,17 @@ func TestKubeControllersGetSecret(t *testing.T) {
 		},
 		{
 			name:             "When Secret has username which exceeds the limit",
-			secretCase:       2,
+			secretCase:       config.CaseSecretTooLongUserName,
+			secretName:       "composable-dra/composable-dra-secret",
 			expectedErr:      false,
 			expectedUserName: config.ExceededSecretInfo,
+		},
+		{
+			name:           "When specified Secret is not existed",
+			secretCase:     config.CaseSecretCorrect,
+			secretName:     "non-exist-secret",
+			expectedErr:    true,
+			expectedErrMsg: "not exists secret",
 		},
 	}
 	for _, tc := range testCases {
@@ -278,12 +313,15 @@ func TestKubeControllersGetSecret(t *testing.T) {
 				Secret: secret,
 			}
 			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
-			controllers, stop := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
-			defer stop()
-			secret, err := controllers.GetSecret("composable-dra/composable-dra-secret")
+			controllers, stopController := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			defer stopController()
+			secret, err := controllers.GetSecret(tc.secretName)
 			if tc.expectedErr {
 				if err == nil {
 					t.Error("expected error, but got none")
+				}
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
 				if err != nil {
@@ -351,9 +389,20 @@ func TestKubeControllersListProviderIDs(t *testing.T) {
 				testConfig.Nodes[i], testConfig.BMHs[i] = CreateNodeBMHs(i, "test-namespace", tc.useCapiBmh)
 			}
 
+			// Add node without provider id
+			node := &corev1.Node{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Node",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-node-has-no-provider-id",
+				},
+			}
+			testConfig.Nodes = append(testConfig.Nodes, node)
+
 			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
-			controllers, stop := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
-			defer stop()
+			controllers, stopController := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			defer stopController()
 
 			providerIDs, err := controllers.ListProviderIDs()
 			if tc.expectedErr {
@@ -400,6 +449,14 @@ func TestKubeControllersFindNodeNameByProviderID(t *testing.T) {
 			expectedErr:      false,
 			expectedNodeName: "test-node-1",
 		},
+		{
+			name:             "When non-existent provider ID is specified",
+			nodeCount:        1,
+			useCapiBmh:       false,
+			providerID:       "non-existent-provider-id",
+			expectedErr:      false,
+			expectedNodeName: "",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -412,8 +469,8 @@ func TestKubeControllersFindNodeNameByProviderID(t *testing.T) {
 			}
 
 			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
-			controllers, stop := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
-			defer stop()
+			controllers, stopController := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			defer stopController()
 
 			nodeName, err := controllers.FindNodeNameByProviderID(normalizedProviderID(tc.providerID))
 			if tc.expectedErr {
@@ -434,11 +491,13 @@ func TestKubeControllersFindNodeNameByProviderID(t *testing.T) {
 
 func TestKubeControllersFindMachineUUIDByProviderID(t *testing.T) {
 	testCases := []struct {
-		name                string
-		nodeCount           int
-		providerID          string
-		expectedErr         bool
-		expectedMachineUUID string
+		name                 string
+		nodeCount            int
+		providerID           string
+		deleteBmhMachineUUID string
+		deleteBmhAnnotation  string
+		expectedErr          bool
+		expectedMachineUUID  string
 	}{
 		{
 			name:                "When correct machine UUID is obtained as expected if useCapiBmh is true",
@@ -446,6 +505,29 @@ func TestKubeControllersFindMachineUUIDByProviderID(t *testing.T) {
 			providerID:          "00000000-0000-0000-0000-000000000000",
 			expectedErr:         false,
 			expectedMachineUUID: "00000000-0000-0000-0000-000000000000",
+		},
+		{
+			name:                "When non-existent provider id is specified",
+			nodeCount:           1,
+			providerID:          "non-existent-provider-id",
+			expectedErr:         false,
+			expectedMachineUUID: "",
+		},
+		{
+			name:                 "When node has no machine uuid",
+			nodeCount:            1,
+			providerID:           "00000000-0000-0000-0000-000000000000",
+			deleteBmhMachineUUID: "test-bmh-0",
+			expectedErr:          false,
+			expectedMachineUUID:  "",
+		},
+		{
+			name:                "When node has no annotations",
+			nodeCount:           1,
+			providerID:          "00000000-0000-0000-0000-000000000000",
+			deleteBmhAnnotation: "test-bmh-0",
+			expectedErr:         false,
+			expectedMachineUUID: "",
 		},
 	}
 
@@ -462,10 +544,17 @@ func TestKubeControllersFindMachineUUIDByProviderID(t *testing.T) {
 			for i := 0; i < tc.nodeCount; i++ {
 				testConfig.Nodes[i], testConfig.BMHs[i] = CreateNodeBMHs(i, "test-namespace", testConfig.Spec.UseCapiBmh)
 			}
-
+			for _, bmh := range testConfig.BMHs {
+				if bmh.GetName() == tc.deleteBmhMachineUUID {
+					unstructured.RemoveNestedField(bmh.UnstructuredContent(), "metadata", "annotations", "cluster-manager.cdi.io/machine")
+				}
+				if bmh.GetName() == tc.deleteBmhAnnotation {
+					unstructured.RemoveNestedField(bmh.UnstructuredContent(), "metadata", "annotations")
+				}
+			}
 			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
-			controllers, stop := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
-			defer stop()
+			controllers, stopController := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			defer stopController()
 
 			muuid, err := controllers.FindMachineUUIDByProviderID(normalizedProviderString(tc.providerID))
 			if tc.expectedErr {
