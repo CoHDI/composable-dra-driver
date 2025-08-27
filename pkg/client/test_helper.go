@@ -515,6 +515,14 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 									written = writeResponse(w, http.StatusOK, testNodeGroups2)
 								}
 							}
+							if !written {
+								unSuccess := unsuccessfulResponse{
+									Detail: responseDetail{
+										Message: "CM node group list API is failed",
+									},
+								}
+								writeResponse(w, http.StatusNotFound, unSuccess)
+							}
 						} else {
 							ngId := strings.TrimPrefix(remainder, "/"+clusterID1+"/nodegroups")
 							if tenantId == tenantID1 {
@@ -533,17 +541,16 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 									written = writeResponse(w, http.StatusOK, testNodeGroupInfos2[2])
 								}
 							}
+							if !written {
+								unSuccess := unsuccessfulResponse{
+									Detail: responseDetail{
+										Message: "CM node group info API is failed",
+									},
+								}
+								writeResponse(w, http.StatusNotFound, unSuccess)
+							}
 						}
 					}
-					if !written {
-						unSuccess := unsuccessfulResponse{
-							Detail: responseDetail{
-								Message: "CM node group list API is failed",
-							},
-						}
-						writeResponse(w, http.StatusNotFound, unSuccess)
-					}
-
 				}
 				if strings.HasPrefix(remainder, "/v3/tenants/") {
 					remainder = strings.TrimPrefix(remainder, "/v3/tenants/")

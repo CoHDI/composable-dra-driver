@@ -832,7 +832,7 @@ func TestCDIManagerGetAvailableNums(t *testing.T) {
 func TestCDIManagerGetNodeGroups(t *testing.T) {
 	testCases := []struct {
 		name                    string
-		tenantId                string
+		clusterId               string
 		expectedErr             bool
 		expectedErrMsg          string
 		expectedNodeGroupLength int
@@ -844,7 +844,7 @@ func TestCDIManagerGetNodeGroups(t *testing.T) {
 		},
 		{
 			name:           "When node groups API is failed",
-			tenantId:       "00000000-0000-0404-0000-000000000000",
+			clusterId:      "00000000-0000-0000-0404-000000000000",
 			expectedErr:    true,
 			expectedErrMsg: "CM node groups API failed",
 		},
@@ -853,7 +853,7 @@ func TestCDIManagerGetNodeGroups(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
 				DRAenabled: true,
-				TenantID:   tc.tenantId,
+				ClusterID:  tc.clusterId,
 			}
 			m, server, stop := createTestManager(t, testSpec)
 			defer stop()
@@ -884,15 +884,14 @@ func TestCDIManagerGetNodeGroups(t *testing.T) {
 func TestCDIManagerGetNodeGroupInfo(t *testing.T) {
 	testCases := []struct {
 		name                  string
-		useCapiBmh            bool
 		nodeGroup             client.CMNodeGroup
 		machineUUID           string
 		expectedErr           bool
+		expectedErrMsg        string
 		expectedNodeGroupUUID string
 	}{
 		{
-			name:       "When correct node group info is obtained as expected",
-			useCapiBmh: true,
+			name: "When correct node group info is obtained as expected",
 			nodeGroup: client.CMNodeGroup{
 				UUID: "10000000-0000-0000-0000-000000000000",
 			},
@@ -900,11 +899,18 @@ func TestCDIManagerGetNodeGroupInfo(t *testing.T) {
 			expectedErr:           false,
 			expectedNodeGroupUUID: "10000000-0000-0000-0000-000000000000",
 		},
+		{
+			name: "When node group info API is failed",
+			nodeGroup: client.CMNodeGroup{
+				UUID: "40400000-0000-0000-0000-000000000000",
+			},
+			expectedErr:    true,
+			expectedErrMsg: "CM node group info API failed",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
-				UseCapiBmh: tc.useCapiBmh,
 				DRAenabled: true,
 			}
 			m, server, stop := createTestManager(t, testSpec)
@@ -915,6 +921,9 @@ func TestCDIManagerGetNodeGroupInfo(t *testing.T) {
 			if tc.expectedErr {
 				if err == nil {
 					t.Error("expected error, but got none")
+				}
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
 				if err != nil {
