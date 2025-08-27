@@ -270,24 +270,32 @@ func TestCDIManagerStartResourceSliceController(t *testing.T) {
 	testCases := []struct {
 		name                            string
 		caseDriverResource              int
+		enableDRA                       bool
 		expectedDriverName              string
 		expectedPoolName                string
 		expectedDeviceName              string
 		expectedProductName             string
 		expectedBindingFailureCondition []string
-		expectedBindingTimeout          int64
 		expectedErr                     bool
+		expectedErrMsg                  string
 	}{
 		{
 			name:                            "When the controller starts successfully if DRA is enabled",
 			caseDriverResource:              CaseDriverResourceCorrect,
+			enableDRA:                       true,
 			expectedDriverName:              "test-driver-1",
 			expectedPoolName:                "test-device-1-fabric1",
 			expectedDeviceName:              "test-device-1-gpu1",
 			expectedProductName:             "TEST DEVICE 1",
 			expectedBindingFailureCondition: []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
-			expectedBindingTimeout:          600,
 			expectedErr:                     false,
+		},
+		{
+			name:               "When the controller failed to start if DRA is disabled",
+			caseDriverResource: CaseDeviceCorrect,
+			enableDRA:          false,
+			expectedErr:        true,
+			expectedErrMsg:     "not enabled feature gate of Dynamic Resource Allocation",
 		},
 	}
 
@@ -295,7 +303,7 @@ func TestCDIManagerStartResourceSliceController(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
 				UseCapiBmh:         true,
-				DRAenabled:         true,
+				DRAenabled:         tc.enableDRA,
 				CaseDriverResource: tc.caseDriverResource,
 			}
 			m, _, stop := createTestManager(t, testSpec)
@@ -308,60 +316,63 @@ func TestCDIManagerStartResourceSliceController(t *testing.T) {
 				if err == nil {
 					t.Error("expected error, but got none")
 				}
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
-			}
-			count := 0
-			for _, c := range cs {
-				for !(c.GetStats().NumCreates > 0) && !(count == 3) {
-					count++
-					time.Sleep(time.Second)
+				count := 0
+				for _, c := range cs {
+					for !(c.GetStats().NumCreates > 0) && !(count == 3) {
+						count++
+						time.Sleep(time.Second)
+					}
 				}
-			}
-			resourceslices, err := m.coreClient.ResourceV1().ResourceSlices().List(ctx, metav1.ListOptions{})
-			if err != nil {
-				t.Errorf("unexpected error in kube client List")
-			}
-			var deviceFound bool
-			sliceNumPerPool := make(map[string]int)
-			for _, resourceslice := range resourceslices.Items {
-				poolName := resourceslice.Spec.Pool.Name
-				if poolName == tc.expectedPoolName {
-					sliceNumPerPool[poolName]++
-					if sliceNumPerPool[poolName] > 1 {
-						t.Errorf("more than one sliece exist per pool, pool name: %s", poolName)
-					}
-					if resourceslice.Spec.Driver != tc.expectedDriverName {
-						t.Errorf("unexpected driver name, expected %s but got %s", tc.expectedDriverName, resourceslice.Spec.Driver)
-					}
-					for _, device := range resourceslice.Spec.Devices {
-						if device.Name == tc.expectedDeviceName {
-							deviceFound = true
-							if *device.Attributes["productName"].StringValue != tc.expectedProductName {
-								t.Errorf("unexpected attributes of productName, expected %s but got %s", tc.expectedProductName, *device.Attributes["productName"].StringValue)
-							}
-							for _, expectedBCFailure := range tc.expectedBindingFailureCondition {
-								var found bool
-								for _, bcFailure := range device.BindingFailureConditions {
-									if bcFailure == expectedBCFailure {
-										found = true
-									}
+				resourceslices, err := m.coreClient.ResourceV1().ResourceSlices().List(ctx, metav1.ListOptions{})
+				if err != nil {
+					t.Errorf("unexpected error in kube client List")
+				}
+				var deviceFound bool
+				sliceNumPerPool := make(map[string]int)
+				for _, resourceslice := range resourceslices.Items {
+					poolName := resourceslice.Spec.Pool.Name
+					if poolName == tc.expectedPoolName {
+						sliceNumPerPool[poolName]++
+						if sliceNumPerPool[poolName] > 1 {
+							t.Errorf("more than one sliece exist per pool, pool name: %s", poolName)
+						}
+						if resourceslice.Spec.Driver != tc.expectedDriverName {
+							t.Errorf("unexpected driver name, expected %s but got %s", tc.expectedDriverName, resourceslice.Spec.Driver)
+						}
+						for _, device := range resourceslice.Spec.Devices {
+							if device.Name == tc.expectedDeviceName {
+								deviceFound = true
+								if *device.Attributes["productName"].StringValue != tc.expectedProductName {
+									t.Errorf("unexpected attributes of productName, expected %s but got %s", tc.expectedProductName, *device.Attributes["productName"].StringValue)
 								}
-								if !found {
-									t.Errorf("expected BindingFailureCondition is not found: %s", expectedBCFailure)
+								for _, expectedBCFailure := range tc.expectedBindingFailureCondition {
+									var found bool
+									for _, bcFailure := range device.BindingFailureConditions {
+										if bcFailure == expectedBCFailure {
+											found = true
+										}
+									}
+									if !found {
+										t.Errorf("expected BindingFailureCondition is not found: %s", expectedBCFailure)
+									}
 								}
 							}
 						}
 					}
 				}
-			}
-			if len(tc.expectedPoolName) > 0 && sliceNumPerPool[tc.expectedPoolName] < 1 {
-				t.Errorf("not found expected ResourceSlice in pool, expected pool %s", tc.expectedPoolName)
-			}
-			if len(tc.expectedDeviceName) > 0 && !deviceFound {
-				t.Errorf("not found expected device in ResourceSlice, expected device %s", tc.expectedDeviceName)
+				if len(tc.expectedPoolName) > 0 && sliceNumPerPool[tc.expectedPoolName] < 1 {
+					t.Errorf("not found expected ResourceSlice in pool, expected pool %s", tc.expectedPoolName)
+				}
+				if len(tc.expectedDeviceName) > 0 && !deviceFound {
+					t.Errorf("not found expected device in ResourceSlice, expected device %s", tc.expectedDeviceName)
+				}
 			}
 		})
 	}
