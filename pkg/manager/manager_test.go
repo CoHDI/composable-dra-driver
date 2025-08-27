@@ -721,13 +721,21 @@ func TestCDIManagerGetMachineUUID(t *testing.T) {
 func TestCDIManagerGetMachineList(t *testing.T) {
 	testCases := []struct {
 		name              string
+		tenantId          string
 		expectedNodeCount int
 		expectedErr       bool
+		expectedErrMsg    string
 	}{
 		{
 			name:              "When correct machine list is obtained as expected",
 			expectedNodeCount: 9,
 			expectedErr:       false,
+		},
+		{
+			name:           "When machine list API is failed",
+			tenantId:       "00000000-0000-0404-0000-000000000000",
+			expectedErr:    true,
+			expectedErrMsg: "FM machine list API failed",
 		},
 	}
 	for _, tc := range testCases {
@@ -735,6 +743,7 @@ func TestCDIManagerGetMachineList(t *testing.T) {
 			testSpec := config.TestSpec{
 				UseCapiBmh: false,
 				DRAenabled: true,
+				TenantID:   tc.tenantId,
 			}
 			m, server, stop := createTestManager(t, testSpec)
 			defer stop()
@@ -742,7 +751,9 @@ func TestCDIManagerGetMachineList(t *testing.T) {
 
 			mList, err := m.getMachineList(context.Background())
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Errorf("expected error, but got none")
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
