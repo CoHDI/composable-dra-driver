@@ -266,6 +266,32 @@ func createTestControllers(t testing.TB, kubeClitent kubernetes.Interface) map[s
 	return controlles
 }
 
+func removeBmhMachineUUID(t *testing.T, bmhName string, m *CDIManager) {
+	bmh, err := m.bmhClient.Resource(ku.GVK_BMH).Namespace("test-namespace").Get(context.Background(), bmhName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to get BareMetalHost: %v", err)
+	}
+	bmh = bmh.DeepCopy()
+	unstructured.RemoveNestedField(bmh.UnstructuredContent(), "metadata", "annotations", "cluster-manager.cdi.io/machine")
+	_, err = m.bmhClient.Resource(ku.GVK_BMH).Namespace("test-namespace").Update(context.Background(), bmh, metav1.UpdateOptions{})
+	if err != nil {
+		t.Fatalf("failed to update BareMetalHost: %v", err)
+	}
+}
+
+func removeNodeMachineUUID(t *testing.T, nodeName string, m *CDIManager) {
+	node, err := m.coreClient.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to get Node: %v", err)
+	}
+	node = node.DeepCopy()
+	node.Spec.ProviderID = ""
+	_, err = m.coreClient.CoreV1().Nodes().Update(context.Background(), node, metav1.UpdateOptions{})
+	if err != nil {
+		t.Fatalf("failed to update Node: %v", err)
+	}
+}
+
 func TestCDIManagerStartResourceSliceController(t *testing.T) {
 	testCases := []struct {
 		name                            string
@@ -514,16 +540,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 					bmhNames = tc.deletedAnnotationBmh
 				}
 				for _, bmhName := range bmhNames {
-					bmh, err := m.bmhClient.Resource(ku.GVK_BMH).Namespace("test-namespace").Get(context.Background(), bmhName, metav1.GetOptions{})
-					if err != nil {
-						t.Fatalf("failed to get BareMetalHost: %v", err)
-					}
-					bmh = bmh.DeepCopy()
-					unstructured.RemoveNestedField(bmh.UnstructuredContent(), "metadata", "annotations", "cluster-manager.cdi.io/machine")
-					_, err = m.bmhClient.Resource(ku.GVK_BMH).Namespace("test-namespace").Update(context.Background(), bmh, metav1.UpdateOptions{})
-					if err != nil {
-						t.Fatalf("failed to update BareMetalHost: %v", err)
-					}
+					removeBmhMachineUUID(t, bmhName, m)
 				}
 			}
 
@@ -622,16 +639,16 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 
 func TestCDIManagerGetMachineUUID(t *testing.T) {
 	testCases := []struct {
-		name                string
-		nodeCount           int
-		nodeName            string
-		useCapiBmh          bool
-		expectedErr         bool
-		expectedMachineUUID string
+		name                     string
+		nodeName                 string
+		useCapiBmh               bool
+		deleteMachineUUID        bool
+		expectedErr              bool
+		expectedMachineUUID      string
+		expectedMachineUUIDCount int
 	}{
 		{
 			name:                "When correct machine uuid is obtained if USE_CAPI_BMH is true",
-			nodeCount:           1,
 			nodeName:            "test-node-0",
 			useCapiBmh:          true,
 			expectedErr:         false,
@@ -639,11 +656,28 @@ func TestCDIManagerGetMachineUUID(t *testing.T) {
 		},
 		{
 			name:                "When correct machine uuid is obtained if USE_CAPI_BMH is false",
-			nodeCount:           2,
 			nodeName:            "test-node-1",
 			useCapiBmh:          false,
 			expectedErr:         false,
 			expectedMachineUUID: "00000000-0000-0000-0000-000000000001",
+		},
+		{
+			name:                     "When there is node does not have machine uuid if USE_CAPI_BMH is true",
+			nodeName:                 "test-node-0",
+			useCapiBmh:               true,
+			deleteMachineUUID:        true,
+			expectedErr:              false,
+			expectedMachineUUID:      "",
+			expectedMachineUUIDCount: 8,
+		},
+		{
+			name:                     "When there is node does not have machine uuid if USE_CAPI_BMH is false",
+			nodeName:                 "test-node-0",
+			useCapiBmh:               false,
+			deleteMachineUUID:        true,
+			expectedErr:              false,
+			expectedMachineUUID:      "",
+			expectedMachineUUIDCount: 8,
 		},
 	}
 	for _, tc := range testCases {
@@ -652,17 +686,32 @@ func TestCDIManagerGetMachineUUID(t *testing.T) {
 				UseCapiBmh: tc.useCapiBmh,
 				DRAenabled: true,
 			}
-			m, _, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, _, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
+
+			if tc.deleteMachineUUID {
+				if tc.useCapiBmh {
+					removeBmhMachineUUID(t, "test-bmh-0", m)
+					time.Sleep(1 * time.Second)
+				} else {
+					removeNodeMachineUUID(t, "test-node-0", m)
+					time.Sleep(1 * time.Second)
+				}
+			}
 			muuids, err := m.getMachineUUIDs()
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Errorf("expected error, but got none")
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
 				if muuids[tc.nodeName] != tc.expectedMachineUUID {
 					t.Errorf("unexpected machine uuid got: expected %s, but got %s", tc.expectedMachineUUID, muuids[tc.nodeName])
+				}
+				if tc.expectedMachineUUIDCount > 0 && len(muuids) != tc.expectedMachineUUIDCount {
+					t.Errorf("unexpected machine uuid count: expected %d, but got %d", tc.expectedMachineUUIDCount, len(muuids))
 				}
 			}
 		})

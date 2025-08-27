@@ -674,7 +674,7 @@ func BuildTestClientSet(t testing.TB, testSpec config.TestSpec) (TestClientSet, 
 		BMHs:   make([]*unstructured.Unstructured, config.TestNodeCount),
 	}
 	for i := 0; i < config.TestNodeCount; i++ {
-		testConfig.Nodes[i], testConfig.BMHs[i] = ku.CreateNodeBMHs(i, "test-namespace", testConfig.Spec.UseCapiBmh)
+		testConfig.Nodes[i], testConfig.BMHs[i] = ku.CreateNodeBMHs(i, "test-namespace", testSpec.UseCapiBmh)
 	}
 
 	kubeclient, dynamicclient := ku.CreateTestClient(t, testConfig)
