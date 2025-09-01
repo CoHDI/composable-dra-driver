@@ -31,6 +31,7 @@ import (
 	"testing"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,6 +39,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/dynamic-resource-allocation/resourceslice"
 	"k8s.io/utils/ptr"
+	"k8s.io/utils/strings/slices"
 )
 
 const (
@@ -226,7 +228,7 @@ func createTestDeviceList(availableNum int, nodeGroupUUID string, caseDevice int
 	return devList
 }
 
-func createTestControllers(t testing.TB, kubeClitent kubernetes.Interface) map[string]*resourceslice.Controller {
+func createTestResourceSliceControllers(t testing.TB, kubeClitent kubernetes.Interface) map[string]*resourceslice.Controller {
 	var err error
 	controlles := make(map[string]*resourceslice.Controller)
 	options1 := resourceslice.Options{
@@ -526,9 +528,9 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 				CaseDeviceInfo:     tc.caseDevInfo,
 				CaseDriverResource: tc.caseDriverResource,
 			}
-			m, server, stop := createTestManager(t, testSpec)
+			m, server, stopKubeController := createTestManager(t, testSpec)
 			defer server.Close()
-			defer stop()
+			defer stopKubeController()
 
 			if len(tc.deletedAnnotationBmh) > 0 {
 				var bmhNames []string
@@ -544,9 +546,9 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 				}
 			}
 
-			controlles := createTestControllers(t, m.coreClient)
+			rscontrolles := createTestResourceSliceControllers(t, m.coreClient)
 
-			err := m.startCheckResourcePoolLoop(context.Background(), controlles)
+			err := m.startCheckResourcePoolLoop(context.Background(), rscontrolles)
 
 			if tc.expectedErr {
 				if err == nil {
@@ -745,8 +747,8 @@ func TestCDIManagerGetMachineList(t *testing.T) {
 				DRAenabled: true,
 				TenantID:   tc.tenantId,
 			}
-			m, server, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, server, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
 			defer server.Close()
 
 			mList, err := m.getMachineList(context.Background())
@@ -805,8 +807,8 @@ func TestCDIManagerGetAvailableNums(t *testing.T) {
 			testSpec := config.TestSpec{
 				DRAenabled: true,
 			}
-			m, server, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, server, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
 			defer server.Close()
 
 			availableResources, err := m.getAvailableNums(context.Background(), tc.machineUUID, tc.modelName)
@@ -855,8 +857,8 @@ func TestCDIManagerGetNodeGroups(t *testing.T) {
 				DRAenabled: true,
 				ClusterID:  tc.clusterId,
 			}
-			m, server, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, server, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
 			defer server.Close()
 
 			nodeGroups, err := m.getNodeGroups(context.Background())
@@ -913,8 +915,8 @@ func TestCDIManagerGetNodeGroupInfo(t *testing.T) {
 			testSpec := config.TestSpec{
 				DRAenabled: true,
 			}
-			m, server, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, server, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
 			defer server.Close()
 
 			nodeGroupInfo, err := m.getNodeGroupInfo(context.Background(), tc.nodeGroup)
@@ -979,8 +981,8 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 				DRAenabled: true,
 				TenantID:   tc.tenantId,
 			}
-			m, server, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, server, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
 			defer server.Close()
 
 			min, max, err := m.getMinMaxNums(context.Background(), tc.machineUUID, tc.modelName)
@@ -1012,46 +1014,45 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 
 func TestCDIManagerManageCDIResourceSlices(t *testing.T) {
 	testCases := []struct {
-		name                   string
-		availableDeviceCount   []int
-		expectedPoolName       string
-		expectedDriverName     string
-		expectedDeviceName     string
-		expectedProductName    string
-		expectedBCFailure      []string
-		expectedBintindTimeout int64
-		expectedUpdated        bool
-		expectedGeneration     int
+		name                  string
+		availableDeviceCounts []int
+		expectedPoolName      string
+		expectedDriverName    string
+		expectedDeviceName    string
+		expectedProductName   string
+		expectedBCFailure     []string
+		expectedUpdated       bool
+		expectedGeneration    int
 	}{
 		{
-			name:                   "When ResourceSlice is correctly created and updated",
-			availableDeviceCount:   []int{3, 5, 1},
-			expectedPoolName:       "test-device-1-fabric2",
-			expectedDriverName:     "test-driver-1",
-			expectedDeviceName:     "test-device-1-gpu0",
-			expectedProductName:    "TEST DEVICE 1",
-			expectedBCFailure:      []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
-			expectedBintindTimeout: 100,
-			expectedUpdated:        true,
-			expectedGeneration:     1,
+			name:                  "When ResourceSlice is correctly created and updated",
+			availableDeviceCounts: []int{3, 5, 1},
+			expectedPoolName:      "test-device-1-fabric1",
+			expectedDriverName:    "test-driver-1",
+			expectedDeviceName:    "test-device-1",
+			expectedProductName:   "TEST DEVICE 1",
+			expectedBCFailure:     []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
+			expectedUpdated:       true,
+			expectedGeneration:    1,
 		},
 		{
-			name:                 "When ResourceSlice is not updated",
-			availableDeviceCount: []int{3, 3, 3},
-			expectedPoolName:     "test-device-1-fabric2",
-			expectedDriverName:   "test-driver-1",
-			expectedDeviceName:   "test-device-1-gpu2",
-			expectedProductName:  "TEST DEVICE 1",
-			expectedUpdated:      false,
-			expectedGeneration:   1,
+			name:                  "When ResourceSlice is not updated",
+			availableDeviceCounts: []int{3, 3, 3},
+			expectedPoolName:      "test-device-1-fabric1",
+			expectedDriverName:    "test-driver-1",
+			expectedDeviceName:    "test-device-1",
+			expectedProductName:   "TEST DEVICE 1",
+			expectedUpdated:       false,
+			expectedGeneration:    1,
 		},
 		{
-			name:                 "When available device count is zero",
-			availableDeviceCount: []int{0, 0, 0},
-			expectedPoolName:     "test-device-1-fabric2",
-			expectedDriverName:   "test-driver-1",
-			expectedUpdated:      false,
-			expectedGeneration:   1,
+			name:                  "When available device count is zero",
+			availableDeviceCounts: []int{0, 0, 0},
+			expectedPoolName:      "test-device-1-fabric1",
+			expectedDeviceName:    "test-device-1",
+			expectedDriverName:    "test-driver-1",
+			expectedUpdated:       false,
+			expectedGeneration:    1,
 		},
 	}
 	for _, tc := range testCases {
@@ -1059,24 +1060,23 @@ func TestCDIManagerManageCDIResourceSlices(t *testing.T) {
 			testSpec := config.TestSpec{
 				UseCapiBmh:         false,
 				DRAenabled:         true,
-				CaseDriverResource: CaseDriverResourceCorrect,
+				CaseDriverResource: CaseDriverResourceEmpty,
 				CaseDevice:         CaseDeviceCorrect,
 			}
-			m, _, stop := createTestManager(t, testSpec)
-			defer stop()
-			controlles := createTestControllers(t, m.coreClient)
-			for i, availableDevice := range tc.availableDeviceCount {
+			m, _, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
+			rscontrolles := createTestResourceSliceControllers(t, m.coreClient)
+			for i, availableDevice := range tc.availableDeviceCounts {
 				testSpec.AvailableDeviceCount = availableDevice
 				machines := createTestMachines(testSpec)
-				m.manageCDIResourceSlices(machines, controlles)
+				m.manageCDIResourceSlices(machines, rscontrolles)
 				time.Sleep(time.Second)
 				resourceslices, err := m.coreClient.ResourceV1().ResourceSlices().List(context.Background(), metav1.ListOptions{})
 				if err != nil {
 					t.Errorf("unexpected error in kube client List")
 				}
-
 				if len(resourceslices.Items) != len(machines[0].deviceList)*fabricIdNum {
-					t.Errorf("unexpected ResourceSlice num, expected 9, but got %d", len(resourceslices.Items))
+					t.Errorf("unexpected ResourceSlice num, expected %d, but got %d", len(machines[0].deviceList)*fabricIdNum, len(resourceslices.Items))
 				}
 				sliceNumPerPool := make(map[string]int)
 				var deviceFound bool
@@ -1094,22 +1094,38 @@ func TestCDIManagerManageCDIResourceSlices(t *testing.T) {
 							t.Errorf("unexpected device num, expected %d but got %d", availableDevice, len(resourceslice.Spec.Devices))
 						}
 						for _, device := range resourceslice.Spec.Devices {
-							if device.Name == tc.expectedDeviceName {
+							if device.Name == tc.expectedDeviceName+"-gpu0" {
 								deviceFound = true
 								productName := device.Attributes["productName"]
 								if productName.StringValue != nil && *productName.StringValue != tc.expectedProductName {
 									t.Errorf("unexpected ProductName, expected %s but got %s", tc.expectedProductName, *productName.StringValue)
 								}
 								for _, expectedBCFailure := range tc.expectedBCFailure {
-									var found bool
+									var bcFound bool
 									for _, bcFailure := range device.BindingFailureConditions {
 										if bcFailure == expectedBCFailure {
-											found = true
+											bcFound = true
 										}
 									}
-									if !found {
+									if !bcFound {
 										t.Errorf("expected BindingFailureCondition is not found, expected %s", expectedBCFailure)
 									}
+								}
+							}
+						}
+						for _, nodeSelectors := range resourceslice.Spec.NodeSelector.NodeSelectorTerms {
+							for _, nodeSelector := range nodeSelectors.MatchExpressions {
+								switch nodeSelector.Key {
+								case "cohdi.com/" + tc.expectedDeviceName:
+									if nodeSelector.Operator != corev1.NodeSelectorOpIn || !slices.Contains(nodeSelector.Values, "true") {
+										t.Errorf("unexpected nodeSelector is set in device key field")
+									}
+								case "cohdi.com/fabric":
+									if nodeSelector.Operator != corev1.NodeSelectorOpIn || !slices.Contains(nodeSelector.Values, "1") {
+										t.Errorf("unexpected nodeSelector is set in fabric key field")
+									}
+								default:
+									t.Errorf("unexpected nodeSelector key is found: %s", nodeSelector.Key)
 								}
 							}
 						}
@@ -1171,8 +1187,8 @@ func TestCDIManagerUpdatePool(t *testing.T) {
 				UseCapiBmh: false,
 				DRAenabled: true,
 			}
-			m, _, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, _, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
 			for i, availableNum := range tc.availableDeviceCount {
 				nodeGroup := "10000000-0000-0000-0000-000000000000"
 				deviceList := createTestDeviceList(availableNum, nodeGroup, testSpec.CaseDevice)
@@ -1245,8 +1261,8 @@ func TestCDIManagerGeneratePool(t *testing.T) {
 				UseCapiBmh: tc.useCapiBmh,
 				DRAenabled: true,
 			}
-			m, server, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, server, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
 			defer server.Close()
 
 			device := &device{
@@ -1332,8 +1348,8 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 				AvailableDeviceCount: 3,
 				CaseDevice:           tc.caseDevice,
 			}
-			m, _, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, _, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
 
 			count := 1
 			if tc.maxNumChanged {
