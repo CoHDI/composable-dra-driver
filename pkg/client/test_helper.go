@@ -563,16 +563,18 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 						remainder = strings.TrimPrefix(remainder, tenantID2+"/clusters")
 						tenantId = tenantID2
 					}
-					muuid := strings.TrimPrefix(remainder, "/"+clusterID1+"/machines/")
-					r := regexp.MustCompile("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
-					if r.MatchString(muuid) {
-						index, _ := strconv.Atoi(string(muuid[len(muuid)-1]))
-						if tenantId == tenantID1 {
-							written = writeResponse(w, http.StatusOK, testNodeDetails1)
-						}
-						if tenantId == tenantID2 {
-							if index <= len(testNodeDetails2) {
-								written = writeResponse(w, http.StatusOK, testNodeDetails2[index])
+					if len(tenantId) != 0 {
+						muuid := strings.TrimPrefix(remainder, "/"+clusterID1+"/machines/")
+						r := regexp.MustCompile("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
+						if r.MatchString(muuid) {
+							index, _ := strconv.Atoi(string(muuid[len(muuid)-1]))
+							if tenantId == tenantID1 {
+								written = writeResponse(w, http.StatusOK, testNodeDetails1)
+							}
+							if tenantId == tenantID2 {
+								if index <= len(testNodeDetails2) {
+									written = writeResponse(w, http.StatusOK, testNodeDetails2[index])
+								}
 							}
 						}
 					}

@@ -945,20 +945,31 @@ func TestCDIManagerGetNodeGroupInfo(t *testing.T) {
 
 func TestCDIManagerGetMinMaxNums(t *testing.T) {
 	testCases := []struct {
-		name        string
-		machineUUID string
-		modelName   string
-		expectedErr bool
-		expectedMin int
-		expectedMax int
+		name           string
+		tenantId       string
+		machineUUID    string
+		modelName      string
+		expectedErr    bool
+		expectedErrMsg string
+		expectedMin    int
+		expectedMax    int
 	}{
 		{
 			name:        "When correct min/max number of fabric devices is obtained as expected",
+			tenantId:    "00000000-0000-0002-0000-000000000000",
 			machineUUID: "00000000-0000-0000-0000-000000000000",
 			modelName:   "DEVICE 1",
 			expectedErr: false,
 			expectedMin: 1,
 			expectedMax: 3,
+		},
+		{
+			name:           "When node details API is failed",
+			tenantId:       "00000000-0000-0404-0000-000000000000",
+			machineUUID:    "00000000-0000-0000-0000-000000000000",
+			modelName:      "DEVICE 1",
+			expectedErr:    true,
+			expectedErrMsg: "CM node details API failed",
 		},
 	}
 	for _, tc := range testCases {
@@ -966,6 +977,7 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 			testSpec := config.TestSpec{
 				UseCapiBmh: false,
 				DRAenabled: true,
+				TenantID:   tc.tenantId,
 			}
 			m, server, stop := createTestManager(t, testSpec)
 			defer stop()
@@ -975,6 +987,9 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 			if tc.expectedErr {
 				if err == nil {
 					t.Error("expected error, but got none")
+				}
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
 				if err != nil {
