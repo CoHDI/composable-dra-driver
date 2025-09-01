@@ -493,8 +493,9 @@ func (m *CDIManager) manageCDIResourceSlices(machines []*machine, controlles map
 			for _, device := range machine.deviceList {
 				if _, exist := m.namedDriverResources[device.driverName]; exist {
 					poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(*machine.fabricID)
-					updated := m.updatePool(device.driverName, poolName, device, *machine.fabricID)
+					updated := m.updatePool(poolName, device, *machine.fabricID)
 					if updated {
+						slog.Info("pool update", "poolName", poolName, "generation", m.namedDriverResources[device.driverName].Pools[poolName].Generation, "driver", device.driverName)
 						needUpdate[device.driverName] = true
 					}
 				}
@@ -505,25 +506,22 @@ func (m *CDIManager) manageCDIResourceSlices(machines []*machine, controlles map
 	for driverName, driverResources := range m.namedDriverResources {
 		if needUpdate[driverName] {
 			c := controlles[driverName]
-			for poolName := range driverResources.Pools {
-				slog.Info("pool update", "poolName", poolName, "generation", m.namedDriverResources[driverName].Pools[poolName].Generation, "driver", driverName)
-			}
 			c.Update(driverResources)
 		}
 	}
 }
 
-func (m *CDIManager) updatePool(driverName string, poolName string, device *device, fabricID int) (updated bool) {
+func (m *CDIManager) updatePool(poolName string, device *device, fabricID int) (updated bool) {
 	var generation int64 = 1
-	pool := m.namedDriverResources[driverName].Pools[poolName]
+	pool := m.namedDriverResources[device.driverName].Pools[poolName]
 	if len(pool.Slices) == 0 {
-		m.namedDriverResources[driverName].Pools[poolName] = m.generatePool(device, fabricID, generation)
+		m.namedDriverResources[device.driverName].Pools[poolName] = m.generatePool(device, fabricID, generation)
 		return true
 	} else {
 		if len(pool.Slices[0].Devices) != device.availableDeviceCount {
 			generation = pool.Generation
 			generation++
-			m.namedDriverResources[driverName].Pools[poolName] = m.generatePool(device, fabricID, generation)
+			m.namedDriverResources[device.driverName].Pools[poolName] = m.generatePool(device, fabricID, generation)
 			return true
 		}
 	}

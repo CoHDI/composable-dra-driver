@@ -31,7 +31,6 @@ import (
 	"testing"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1117,11 +1116,11 @@ func TestCDIManagerManageCDIResourceSlices(t *testing.T) {
 							for _, nodeSelector := range nodeSelectors.MatchExpressions {
 								switch nodeSelector.Key {
 								case "cohdi.com/" + tc.expectedDeviceName:
-									if nodeSelector.Operator != corev1.NodeSelectorOpIn || !slices.Contains(nodeSelector.Values, "true") {
+									if nodeSelector.Operator != v1.NodeSelectorOpIn || !slices.Contains(nodeSelector.Values, "true") {
 										t.Errorf("unexpected nodeSelector is set in device key field")
 									}
 								case "cohdi.com/fabric":
-									if nodeSelector.Operator != corev1.NodeSelectorOpIn || !slices.Contains(nodeSelector.Values, "1") {
+									if nodeSelector.Operator != v1.NodeSelectorOpIn || !slices.Contains(nodeSelector.Values, "1") {
 										t.Errorf("unexpected nodeSelector is set in fabric key field")
 									}
 								default:
@@ -1196,7 +1195,7 @@ func TestCDIManagerUpdatePool(t *testing.T) {
 				poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(tc.fabricID)
 				var updated bool
 				if _, exist := m.namedDriverResources[device.driverName]; exist {
-					updated = m.updatePool(device.driverName, poolName, device, tc.fabricID)
+					updated = m.updatePool(poolName, device, tc.fabricID)
 				}
 				if tc.expectedUpdated {
 					if !updated {
