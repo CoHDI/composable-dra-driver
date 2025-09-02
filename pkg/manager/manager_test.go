@@ -38,6 +38,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/dynamic-resource-allocation/resourceslice"
 	"k8s.io/utils/ptr"
+	"k8s.io/utils/strings/slices"
 )
 
 const (
@@ -226,7 +227,7 @@ func createTestDeviceList(availableNum int, nodeGroupUUID string, caseDevice int
 	return devList
 }
 
-func createTestControllers(t testing.TB, kubeClitent kubernetes.Interface) map[string]*resourceslice.Controller {
+func createTestResourceSliceControllers(t testing.TB, kubeClitent kubernetes.Interface) map[string]*resourceslice.Controller {
 	var err error
 	controlles := make(map[string]*resourceslice.Controller)
 	options1 := resourceslice.Options{
@@ -266,28 +267,62 @@ func createTestControllers(t testing.TB, kubeClitent kubernetes.Interface) map[s
 	return controlles
 }
 
+func removeBmhMachineUUID(t *testing.T, bmhName string, m *CDIManager) {
+	bmh, err := m.bmhClient.Resource(ku.GVK_BMH).Namespace("test-namespace").Get(context.Background(), bmhName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to get BareMetalHost: %v", err)
+	}
+	bmh = bmh.DeepCopy()
+	unstructured.RemoveNestedField(bmh.UnstructuredContent(), "metadata", "annotations", "cluster-manager.cdi.io/machine")
+	_, err = m.bmhClient.Resource(ku.GVK_BMH).Namespace("test-namespace").Update(context.Background(), bmh, metav1.UpdateOptions{})
+	if err != nil {
+		t.Fatalf("failed to update BareMetalHost: %v", err)
+	}
+}
+
+func removeNodeMachineUUID(t *testing.T, nodeName string, m *CDIManager) {
+	node, err := m.coreClient.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to get Node: %v", err)
+	}
+	node = node.DeepCopy()
+	node.Spec.ProviderID = ""
+	_, err = m.coreClient.CoreV1().Nodes().Update(context.Background(), node, metav1.UpdateOptions{})
+	if err != nil {
+		t.Fatalf("failed to update Node: %v", err)
+	}
+}
+
 func TestCDIManagerStartResourceSliceController(t *testing.T) {
 	testCases := []struct {
 		name                            string
 		caseDriverResource              int
+		enableDRA                       bool
 		expectedDriverName              string
 		expectedPoolName                string
 		expectedDeviceName              string
 		expectedProductName             string
 		expectedBindingFailureCondition []string
-		expectedBindingTimeout          int64
 		expectedErr                     bool
+		expectedErrMsg                  string
 	}{
 		{
 			name:                            "When the controller starts successfully if DRA is enabled",
 			caseDriverResource:              CaseDriverResourceCorrect,
+			enableDRA:                       true,
 			expectedDriverName:              "test-driver-1",
 			expectedPoolName:                "test-device-1-fabric1",
 			expectedDeviceName:              "test-device-1-gpu1",
 			expectedProductName:             "TEST DEVICE 1",
 			expectedBindingFailureCondition: []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
-			expectedBindingTimeout:          600,
 			expectedErr:                     false,
+		},
+		{
+			name:               "When the controller failed to start if DRA is disabled",
+			caseDriverResource: CaseDeviceCorrect,
+			enableDRA:          false,
+			expectedErr:        true,
+			expectedErrMsg:     "not enabled feature gate of Dynamic Resource Allocation",
 		},
 	}
 
@@ -295,7 +330,7 @@ func TestCDIManagerStartResourceSliceController(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
 				UseCapiBmh:         true,
-				DRAenabled:         true,
+				DRAenabled:         tc.enableDRA,
 				CaseDriverResource: tc.caseDriverResource,
 			}
 			m, _, stop := createTestManager(t, testSpec)
@@ -308,60 +343,63 @@ func TestCDIManagerStartResourceSliceController(t *testing.T) {
 				if err == nil {
 					t.Error("expected error, but got none")
 				}
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
-			}
-			count := 0
-			for _, c := range cs {
-				for !(c.GetStats().NumCreates > 0) && !(count == 3) {
-					count++
-					time.Sleep(time.Second)
+				count := 0
+				for _, c := range cs {
+					for !(c.GetStats().NumCreates > 0) && !(count == 3) {
+						count++
+						time.Sleep(time.Second)
+					}
 				}
-			}
-			resourceslices, err := m.coreClient.ResourceV1().ResourceSlices().List(ctx, metav1.ListOptions{})
-			if err != nil {
-				t.Errorf("unexpected error in kube client List")
-			}
-			var deviceFound bool
-			sliceNumPerPool := make(map[string]int)
-			for _, resourceslice := range resourceslices.Items {
-				poolName := resourceslice.Spec.Pool.Name
-				if poolName == tc.expectedPoolName {
-					sliceNumPerPool[poolName]++
-					if sliceNumPerPool[poolName] > 1 {
-						t.Errorf("more than one sliece exist per pool, pool name: %s", poolName)
-					}
-					if resourceslice.Spec.Driver != tc.expectedDriverName {
-						t.Errorf("unexpected driver name, expected %s but got %s", tc.expectedDriverName, resourceslice.Spec.Driver)
-					}
-					for _, device := range resourceslice.Spec.Devices {
-						if device.Name == tc.expectedDeviceName {
-							deviceFound = true
-							if *device.Attributes["productName"].StringValue != tc.expectedProductName {
-								t.Errorf("unexpected attributes of productName, expected %s but got %s", tc.expectedProductName, *device.Attributes["productName"].StringValue)
-							}
-							for _, expectedBCFailure := range tc.expectedBindingFailureCondition {
-								var found bool
-								for _, bcFailure := range device.BindingFailureConditions {
-									if bcFailure == expectedBCFailure {
-										found = true
-									}
+				resourceslices, err := m.coreClient.ResourceV1().ResourceSlices().List(ctx, metav1.ListOptions{})
+				if err != nil {
+					t.Errorf("unexpected error in kube client List")
+				}
+				var deviceFound bool
+				sliceNumPerPool := make(map[string]int)
+				for _, resourceslice := range resourceslices.Items {
+					poolName := resourceslice.Spec.Pool.Name
+					if poolName == tc.expectedPoolName {
+						sliceNumPerPool[poolName]++
+						if sliceNumPerPool[poolName] > 1 {
+							t.Errorf("more than one sliece exist per pool, pool name: %s", poolName)
+						}
+						if resourceslice.Spec.Driver != tc.expectedDriverName {
+							t.Errorf("unexpected driver name, expected %s but got %s", tc.expectedDriverName, resourceslice.Spec.Driver)
+						}
+						for _, device := range resourceslice.Spec.Devices {
+							if device.Name == tc.expectedDeviceName {
+								deviceFound = true
+								if *device.Attributes["productName"].StringValue != tc.expectedProductName {
+									t.Errorf("unexpected attributes of productName, expected %s but got %s", tc.expectedProductName, *device.Attributes["productName"].StringValue)
 								}
-								if !found {
-									t.Errorf("expected BindingFailureCondition is not found: %s", expectedBCFailure)
+								for _, expectedBCFailure := range tc.expectedBindingFailureCondition {
+									var found bool
+									for _, bcFailure := range device.BindingFailureConditions {
+										if bcFailure == expectedBCFailure {
+											found = true
+										}
+									}
+									if !found {
+										t.Errorf("expected BindingFailureCondition is not found: %s", expectedBCFailure)
+									}
 								}
 							}
 						}
 					}
 				}
-			}
-			if len(tc.expectedPoolName) > 0 && sliceNumPerPool[tc.expectedPoolName] < 1 {
-				t.Errorf("not found expected ResourceSlice in pool, expected pool %s", tc.expectedPoolName)
-			}
-			if len(tc.expectedDeviceName) > 0 && !deviceFound {
-				t.Errorf("not found expected device in ResourceSlice, expected device %s", tc.expectedDeviceName)
+				if len(tc.expectedPoolName) > 0 && sliceNumPerPool[tc.expectedPoolName] < 1 {
+					t.Errorf("not found expected ResourceSlice in pool, expected pool %s", tc.expectedPoolName)
+				}
+				if len(tc.expectedDeviceName) > 0 && !deviceFound {
+					t.Errorf("not found expected device in ResourceSlice, expected device %s", tc.expectedDeviceName)
+				}
 			}
 		})
 	}
@@ -489,9 +527,9 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 				CaseDeviceInfo:     tc.caseDevInfo,
 				CaseDriverResource: tc.caseDriverResource,
 			}
-			m, server, stop := createTestManager(t, testSpec)
+			m, server, stopKubeController := createTestManager(t, testSpec)
 			defer server.Close()
-			defer stop()
+			defer stopKubeController()
 
 			if len(tc.deletedAnnotationBmh) > 0 {
 				var bmhNames []string
@@ -503,22 +541,13 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 					bmhNames = tc.deletedAnnotationBmh
 				}
 				for _, bmhName := range bmhNames {
-					bmh, err := m.bmhClient.Resource(ku.GVK_BMH).Namespace("test-namespace").Get(context.Background(), bmhName, metav1.GetOptions{})
-					if err != nil {
-						t.Fatalf("failed to get BareMetalHost: %v", err)
-					}
-					bmh = bmh.DeepCopy()
-					unstructured.RemoveNestedField(bmh.UnstructuredContent(), "metadata", "annotations", "cluster-manager.cdi.io/machine")
-					_, err = m.bmhClient.Resource(ku.GVK_BMH).Namespace("test-namespace").Update(context.Background(), bmh, metav1.UpdateOptions{})
-					if err != nil {
-						t.Fatalf("failed to update BareMetalHost: %v", err)
-					}
+					removeBmhMachineUUID(t, bmhName, m)
 				}
 			}
 
-			controlles := createTestControllers(t, m.coreClient)
+			rscontrolles := createTestResourceSliceControllers(t, m.coreClient)
 
-			err := m.startCheckResourcePoolLoop(context.Background(), controlles)
+			err := m.startCheckResourcePoolLoop(context.Background(), rscontrolles)
 
 			if tc.expectedErr {
 				if err == nil {
@@ -611,16 +640,16 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 
 func TestCDIManagerGetMachineUUID(t *testing.T) {
 	testCases := []struct {
-		name                string
-		nodeCount           int
-		nodeName            string
-		useCapiBmh          bool
-		expectedErr         bool
-		expectedMachineUUID string
+		name                     string
+		nodeName                 string
+		useCapiBmh               bool
+		deleteMachineUUID        bool
+		expectedErr              bool
+		expectedMachineUUID      string
+		expectedMachineUUIDCount int
 	}{
 		{
 			name:                "When correct machine uuid is obtained if USE_CAPI_BMH is true",
-			nodeCount:           1,
 			nodeName:            "test-node-0",
 			useCapiBmh:          true,
 			expectedErr:         false,
@@ -628,11 +657,28 @@ func TestCDIManagerGetMachineUUID(t *testing.T) {
 		},
 		{
 			name:                "When correct machine uuid is obtained if USE_CAPI_BMH is false",
-			nodeCount:           2,
 			nodeName:            "test-node-1",
 			useCapiBmh:          false,
 			expectedErr:         false,
 			expectedMachineUUID: "00000000-0000-0000-0000-000000000001",
+		},
+		{
+			name:                     "When there is node does not have machine uuid if USE_CAPI_BMH is true",
+			nodeName:                 "test-node-0",
+			useCapiBmh:               true,
+			deleteMachineUUID:        true,
+			expectedErr:              false,
+			expectedMachineUUID:      "",
+			expectedMachineUUIDCount: 8,
+		},
+		{
+			name:                     "When there is node does not have machine uuid if USE_CAPI_BMH is false",
+			nodeName:                 "test-node-0",
+			useCapiBmh:               false,
+			deleteMachineUUID:        true,
+			expectedErr:              false,
+			expectedMachineUUID:      "",
+			expectedMachineUUIDCount: 8,
 		},
 	}
 	for _, tc := range testCases {
@@ -641,17 +687,32 @@ func TestCDIManagerGetMachineUUID(t *testing.T) {
 				UseCapiBmh: tc.useCapiBmh,
 				DRAenabled: true,
 			}
-			m, _, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, _, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
+
+			if tc.deleteMachineUUID {
+				if tc.useCapiBmh {
+					removeBmhMachineUUID(t, "test-bmh-0", m)
+					time.Sleep(1 * time.Second)
+				} else {
+					removeNodeMachineUUID(t, "test-node-0", m)
+					time.Sleep(1 * time.Second)
+				}
+			}
 			muuids, err := m.getMachineUUIDs()
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Errorf("expected error, but got none")
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
 				if muuids[tc.nodeName] != tc.expectedMachineUUID {
 					t.Errorf("unexpected machine uuid got: expected %s, but got %s", tc.expectedMachineUUID, muuids[tc.nodeName])
+				}
+				if tc.expectedMachineUUIDCount > 0 && len(muuids) != tc.expectedMachineUUIDCount {
+					t.Errorf("unexpected machine uuid count: expected %d, but got %d", tc.expectedMachineUUIDCount, len(muuids))
 				}
 			}
 		})
@@ -661,13 +722,21 @@ func TestCDIManagerGetMachineUUID(t *testing.T) {
 func TestCDIManagerGetMachineList(t *testing.T) {
 	testCases := []struct {
 		name              string
+		tenantId          string
 		expectedNodeCount int
 		expectedErr       bool
+		expectedErrMsg    string
 	}{
 		{
 			name:              "When correct machine list is obtained as expected",
 			expectedNodeCount: 9,
 			expectedErr:       false,
+		},
+		{
+			name:           "When machine list API is failed",
+			tenantId:       "00000000-0000-0404-0000-000000000000",
+			expectedErr:    true,
+			expectedErrMsg: "FM machine list API failed",
 		},
 	}
 	for _, tc := range testCases {
@@ -675,14 +744,17 @@ func TestCDIManagerGetMachineList(t *testing.T) {
 			testSpec := config.TestSpec{
 				UseCapiBmh: false,
 				DRAenabled: true,
+				TenantID:   tc.tenantId,
 			}
-			m, server, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, server, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
 			defer server.Close()
 
 			mList, err := m.getMachineList(context.Background())
 			if tc.expectedErr {
-
+				if err == nil {
+					t.Errorf("expected error, but got none")
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
@@ -734,8 +806,8 @@ func TestCDIManagerGetAvailableNums(t *testing.T) {
 			testSpec := config.TestSpec{
 				DRAenabled: true,
 			}
-			m, server, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, server, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
 			defer server.Close()
 
 			availableResources, err := m.getAvailableNums(context.Background(), tc.machineUUID, tc.modelName)
@@ -743,7 +815,7 @@ func TestCDIManagerGetAvailableNums(t *testing.T) {
 				if err == nil {
 					t.Error("expected error, but got none")
 				}
-				if !strings.Contains(err.Error(), tc.expectedErrMsg) {
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
 					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
@@ -761,7 +833,9 @@ func TestCDIManagerGetAvailableNums(t *testing.T) {
 func TestCDIManagerGetNodeGroups(t *testing.T) {
 	testCases := []struct {
 		name                    string
+		clusterId               string
 		expectedErr             bool
+		expectedErrMsg          string
 		expectedNodeGroupLength int
 	}{
 		{
@@ -769,20 +843,30 @@ func TestCDIManagerGetNodeGroups(t *testing.T) {
 			expectedErr:             false,
 			expectedNodeGroupLength: 3,
 		},
+		{
+			name:           "When node groups API is failed",
+			clusterId:      "00000000-0000-0000-0404-000000000000",
+			expectedErr:    true,
+			expectedErrMsg: "CM node groups API failed",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
 				DRAenabled: true,
+				ClusterID:  tc.clusterId,
 			}
-			m, server, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, server, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
 			defer server.Close()
 
 			nodeGroups, err := m.getNodeGroups(context.Background())
 			if tc.expectedErr {
 				if err == nil {
 					t.Error("expected error, but got none")
+				}
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
 				if err != nil {
@@ -801,15 +885,14 @@ func TestCDIManagerGetNodeGroups(t *testing.T) {
 func TestCDIManagerGetNodeGroupInfo(t *testing.T) {
 	testCases := []struct {
 		name                  string
-		useCapiBmh            bool
 		nodeGroup             client.CMNodeGroup
 		machineUUID           string
 		expectedErr           bool
+		expectedErrMsg        string
 		expectedNodeGroupUUID string
 	}{
 		{
-			name:       "When correct node group info is obtained as expected",
-			useCapiBmh: true,
+			name: "When correct node group info is obtained as expected",
 			nodeGroup: client.CMNodeGroup{
 				UUID: "10000000-0000-0000-0000-000000000000",
 			},
@@ -817,21 +900,31 @@ func TestCDIManagerGetNodeGroupInfo(t *testing.T) {
 			expectedErr:           false,
 			expectedNodeGroupUUID: "10000000-0000-0000-0000-000000000000",
 		},
+		{
+			name: "When node group info API is failed",
+			nodeGroup: client.CMNodeGroup{
+				UUID: "40400000-0000-0000-0000-000000000000",
+			},
+			expectedErr:    true,
+			expectedErrMsg: "CM node group info API failed",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
-				UseCapiBmh: tc.useCapiBmh,
 				DRAenabled: true,
 			}
-			m, server, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, server, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
 			defer server.Close()
 
 			nodeGroupInfo, err := m.getNodeGroupInfo(context.Background(), tc.nodeGroup)
 			if tc.expectedErr {
 				if err == nil {
 					t.Error("expected error, but got none")
+				}
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
 				if err != nil {
@@ -853,20 +946,40 @@ func TestCDIManagerGetNodeGroupInfo(t *testing.T) {
 
 func TestCDIManagerGetMinMaxNums(t *testing.T) {
 	testCases := []struct {
-		name        string
-		machineUUID string
-		modelName   string
-		expectedErr bool
-		expectedMin int
-		expectedMax int
+		name           string
+		tenantId       string
+		machineUUID    string
+		modelName      string
+		expectedErr    bool
+		expectedErrMsg string
+		expectedMin    *int
+		expectedMax    *int
 	}{
 		{
 			name:        "When correct min/max number of fabric devices is obtained as expected",
+			tenantId:    "00000000-0000-0002-0000-000000000000",
 			machineUUID: "00000000-0000-0000-0000-000000000000",
 			modelName:   "DEVICE 1",
 			expectedErr: false,
-			expectedMin: 1,
-			expectedMax: 3,
+			expectedMin: ptr.To(1),
+			expectedMax: ptr.To(3),
+		},
+		{
+			name:           "When node details API is failed",
+			tenantId:       "00000000-0000-0404-0000-000000000000",
+			machineUUID:    "00000000-0000-0000-0000-000000000000",
+			modelName:      "DEVICE 1",
+			expectedErr:    true,
+			expectedErrMsg: "CM node details API failed",
+		},
+		{
+			name:        "When not-existsted device model is specified",
+			tenantId:    "00000000-0000-0002-0000-000000000000",
+			machineUUID: "00000000-0000-0000-0000-000000000000",
+			modelName:   "DUMMY DEVICE",
+			expectedErr: false,
+			expectedMin: nil,
+			expectedMax: nil,
 		},
 	}
 	for _, tc := range testCases {
@@ -874,9 +987,10 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 			testSpec := config.TestSpec{
 				UseCapiBmh: false,
 				DRAenabled: true,
+				TenantID:   tc.tenantId,
 			}
-			m, server, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, server, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
 			defer server.Close()
 
 			min, max, err := m.getMinMaxNums(context.Background(), tc.machineUUID, tc.modelName)
@@ -884,18 +998,29 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 				if err == nil {
 					t.Error("expected error, but got none")
 				}
+				if err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
+				}
 			} else if !tc.expectedErr {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
 				if min != nil {
-					if *min != tc.expectedMin {
-						t.Errorf("unexpected min value, expected %d but got %d", tc.expectedMin, *min)
+					if tc.expectedMin != nil {
+						if *min != *tc.expectedMin {
+							t.Errorf("unexpected min value, expected %d but got %d", *tc.expectedMin, *min)
+						}
+					} else {
+						t.Errorf("unexpected min value, expected min is nil but got not nil")
 					}
 				}
 				if max != nil {
-					if *max != tc.expectedMax {
-						t.Errorf("unexpected max value, expected %d but got %d", tc.expectedMax, *max)
+					if tc.expectedMax != nil {
+						if *max != *tc.expectedMax {
+							t.Errorf("unexpected max value, expected %d but got %d", tc.expectedMax, *max)
+						}
+					} else {
+						t.Errorf("unexpected max value, expected max is nil but got not nil")
 					}
 				}
 			}
@@ -905,46 +1030,45 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 
 func TestCDIManagerManageCDIResourceSlices(t *testing.T) {
 	testCases := []struct {
-		name                   string
-		availableDeviceCount   []int
-		expectedPoolName       string
-		expectedDriverName     string
-		expectedDeviceName     string
-		expectedProductName    string
-		expectedBCFailure      []string
-		expectedBintindTimeout int64
-		expectedUpdated        bool
-		expectedGeneration     int
+		name                  string
+		availableDeviceCounts []int
+		expectedPoolName      string
+		expectedDriverName    string
+		expectedDeviceName    string
+		expectedProductName   string
+		expectedBCFailure     []string
+		expectedUpdated       bool
+		expectedGeneration    int
 	}{
 		{
-			name:                   "When ResourceSlice is correctly created and updated",
-			availableDeviceCount:   []int{3, 5, 1},
-			expectedPoolName:       "test-device-1-fabric2",
-			expectedDriverName:     "test-driver-1",
-			expectedDeviceName:     "test-device-1-gpu0",
-			expectedProductName:    "TEST DEVICE 1",
-			expectedBCFailure:      []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
-			expectedBintindTimeout: 100,
-			expectedUpdated:        true,
-			expectedGeneration:     1,
+			name:                  "When ResourceSlice is correctly created and updated",
+			availableDeviceCounts: []int{3, 5, 1},
+			expectedPoolName:      "test-device-1-fabric1",
+			expectedDriverName:    "test-driver-1",
+			expectedDeviceName:    "test-device-1",
+			expectedProductName:   "TEST DEVICE 1",
+			expectedBCFailure:     []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
+			expectedUpdated:       true,
+			expectedGeneration:    1,
 		},
 		{
-			name:                 "When ResourceSlice is not updated",
-			availableDeviceCount: []int{3, 3, 3},
-			expectedPoolName:     "test-device-1-fabric2",
-			expectedDriverName:   "test-driver-1",
-			expectedDeviceName:   "test-device-1-gpu2",
-			expectedProductName:  "TEST DEVICE 1",
-			expectedUpdated:      false,
-			expectedGeneration:   1,
+			name:                  "When ResourceSlice is not updated",
+			availableDeviceCounts: []int{3, 3, 3},
+			expectedPoolName:      "test-device-1-fabric1",
+			expectedDriverName:    "test-driver-1",
+			expectedDeviceName:    "test-device-1",
+			expectedProductName:   "TEST DEVICE 1",
+			expectedUpdated:       false,
+			expectedGeneration:    1,
 		},
 		{
-			name:                 "When available device count is zero",
-			availableDeviceCount: []int{0, 0, 0},
-			expectedPoolName:     "test-device-1-fabric2",
-			expectedDriverName:   "test-driver-1",
-			expectedUpdated:      false,
-			expectedGeneration:   1,
+			name:                  "When available device count is zero",
+			availableDeviceCounts: []int{0, 0, 0},
+			expectedPoolName:      "test-device-1-fabric1",
+			expectedDeviceName:    "test-device-1",
+			expectedDriverName:    "test-driver-1",
+			expectedUpdated:       false,
+			expectedGeneration:    1,
 		},
 	}
 	for _, tc := range testCases {
@@ -952,24 +1076,23 @@ func TestCDIManagerManageCDIResourceSlices(t *testing.T) {
 			testSpec := config.TestSpec{
 				UseCapiBmh:         false,
 				DRAenabled:         true,
-				CaseDriverResource: CaseDriverResourceCorrect,
+				CaseDriverResource: CaseDriverResourceEmpty,
 				CaseDevice:         CaseDeviceCorrect,
 			}
-			m, _, stop := createTestManager(t, testSpec)
-			defer stop()
-			controlles := createTestControllers(t, m.coreClient)
-			for i, availableDevice := range tc.availableDeviceCount {
+			m, _, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
+			rscontrolles := createTestResourceSliceControllers(t, m.coreClient)
+			for i, availableDevice := range tc.availableDeviceCounts {
 				testSpec.AvailableDeviceCount = availableDevice
 				machines := createTestMachines(testSpec)
-				m.manageCDIResourceSlices(machines, controlles)
+				m.manageCDIResourceSlices(machines, rscontrolles)
 				time.Sleep(time.Second)
 				resourceslices, err := m.coreClient.ResourceV1().ResourceSlices().List(context.Background(), metav1.ListOptions{})
 				if err != nil {
 					t.Errorf("unexpected error in kube client List")
 				}
-
 				if len(resourceslices.Items) != len(machines[0].deviceList)*fabricIdNum {
-					t.Errorf("unexpected ResourceSlice num, expected 9, but got %d", len(resourceslices.Items))
+					t.Errorf("unexpected ResourceSlice num, expected %d, but got %d", len(machines[0].deviceList)*fabricIdNum, len(resourceslices.Items))
 				}
 				sliceNumPerPool := make(map[string]int)
 				var deviceFound bool
@@ -987,22 +1110,38 @@ func TestCDIManagerManageCDIResourceSlices(t *testing.T) {
 							t.Errorf("unexpected device num, expected %d but got %d", availableDevice, len(resourceslice.Spec.Devices))
 						}
 						for _, device := range resourceslice.Spec.Devices {
-							if device.Name == tc.expectedDeviceName {
+							if device.Name == tc.expectedDeviceName+"-gpu0" {
 								deviceFound = true
 								productName := device.Attributes["productName"]
 								if productName.StringValue != nil && *productName.StringValue != tc.expectedProductName {
 									t.Errorf("unexpected ProductName, expected %s but got %s", tc.expectedProductName, *productName.StringValue)
 								}
 								for _, expectedBCFailure := range tc.expectedBCFailure {
-									var found bool
+									var bcFound bool
 									for _, bcFailure := range device.BindingFailureConditions {
 										if bcFailure == expectedBCFailure {
-											found = true
+											bcFound = true
 										}
 									}
-									if !found {
+									if !bcFound {
 										t.Errorf("expected BindingFailureCondition is not found, expected %s", expectedBCFailure)
 									}
+								}
+							}
+						}
+						for _, nodeSelectors := range resourceslice.Spec.NodeSelector.NodeSelectorTerms {
+							for _, nodeSelector := range nodeSelectors.MatchExpressions {
+								switch nodeSelector.Key {
+								case "cohdi.com/" + tc.expectedDeviceName:
+									if nodeSelector.Operator != v1.NodeSelectorOpIn || !slices.Contains(nodeSelector.Values, "true") {
+										t.Errorf("unexpected nodeSelector is set in device key field")
+									}
+								case "cohdi.com/fabric":
+									if nodeSelector.Operator != v1.NodeSelectorOpIn || !slices.Contains(nodeSelector.Values, "1") {
+										t.Errorf("unexpected nodeSelector is set in fabric key field")
+									}
+								default:
+									t.Errorf("unexpected nodeSelector key is found: %s", nodeSelector.Key)
 								}
 							}
 						}
@@ -1052,7 +1191,7 @@ func TestCDIManagerUpdatePool(t *testing.T) {
 		},
 		{
 			name:                 "When pool is not updated",
-			availableDeviceCount: []int{1},
+			availableDeviceCount: []int{1, 1, 1},
 			fabricID:             1,
 			expectedUpdated:      false,
 		},
@@ -1064,8 +1203,8 @@ func TestCDIManagerUpdatePool(t *testing.T) {
 				UseCapiBmh: false,
 				DRAenabled: true,
 			}
-			m, _, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, _, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
 			for i, availableNum := range tc.availableDeviceCount {
 				nodeGroup := "10000000-0000-0000-0000-000000000000"
 				deviceList := createTestDeviceList(availableNum, nodeGroup, testSpec.CaseDevice)
@@ -1073,7 +1212,7 @@ func TestCDIManagerUpdatePool(t *testing.T) {
 				poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(tc.fabricID)
 				var updated bool
 				if _, exist := m.namedDriverResources[device.driverName]; exist {
-					updated = m.updatePool(device.driverName, poolName, device, tc.fabricID)
+					updated = m.updatePool(poolName, device, tc.fabricID)
 				}
 				if tc.expectedUpdated {
 					if !updated {
@@ -1096,50 +1235,29 @@ func TestCDIManagerUpdatePool(t *testing.T) {
 func TestCDIManagerGeneratePool(t *testing.T) {
 	testCases := []struct {
 		name                 string
-		useCapiBmh           bool
-		nodeCount            int
 		k8sDeviceName        string
 		draAttributes        map[string]string
 		availableDeviceCount int
-		bindingTimeout       *int64
 		expectedDeviceName   string
-		expectedLabel        string
 	}{
 		{
 			name:          "When correct pool is generated as expected",
-			useCapiBmh:    false,
-			nodeCount:     1,
 			k8sDeviceName: "test-device-1",
 			draAttributes: map[string]string{
 				"productName": "TEST DEVICE 1",
 			},
 			availableDeviceCount: 3,
-			bindingTimeout:       ptr.To(int64(600)),
 			expectedDeviceName:   "test-device-1-gpu0",
-			expectedLabel:        "cohdi.com/test-device-1",
-		},
-		{
-			name:          "When BindingTimeout is nil",
-			useCapiBmh:    false,
-			nodeCount:     1,
-			k8sDeviceName: "test-device-1",
-			draAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-			availableDeviceCount: 3,
-			bindingTimeout:       nil,
-			expectedDeviceName:   "test-device-1-gpu0",
-			expectedLabel:        "cohdi.com/test-device-1",
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
-				UseCapiBmh: tc.useCapiBmh,
+				UseCapiBmh: false,
 				DRAenabled: true,
 			}
-			m, server, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, server, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
 			defer server.Close()
 
 			device := &device{
@@ -1156,16 +1274,36 @@ func TestCDIManagerGeneratePool(t *testing.T) {
 				if devices[0].Name != tc.expectedDeviceName {
 					t.Errorf("unexpected device name in generated pool, expected %s but got %s", tc.expectedDeviceName, devices[0].Name)
 				}
-				foundLabel := false
-				for _, selctorTerms := range pool.NodeSelector.NodeSelectorTerms {
-					for _, exprs := range selctorTerms.MatchExpressions {
-						if exprs.Key == tc.expectedLabel {
-							foundLabel = true
-						}
+				if len(devices) != tc.availableDeviceCount {
+					t.Errorf("unexpected device num is created, expected %d but got %d", tc.availableDeviceCount, len(devices))
+				}
+				for key, value := range tc.draAttributes {
+					str := devices[0].Attributes[resourceapi.QualifiedName(key)].StringValue
+					if str != nil && *str != value {
+						t.Errorf("unexpected dra attributes for key %s, expected %s but got %s", key, value, *str)
 					}
 				}
-				if !foundLabel {
-					t.Errorf("expected nodeSelector is not set, expected label: %s", tc.expectedLabel)
+				if len(pool.NodeSelector.NodeSelectorTerms) == 0 {
+					t.Errorf("NodeSelectorTerms is not found")
+				}
+				for _, nodeSelectors := range pool.NodeSelector.NodeSelectorTerms {
+					if len(nodeSelectors.MatchExpressions) == 0 {
+						t.Errorf("NodeSelector MatchExpressions is not found")
+					}
+					for _, nodeSelector := range nodeSelectors.MatchExpressions {
+						switch nodeSelector.Key {
+						case "cohdi.com/" + tc.k8sDeviceName:
+							if nodeSelector.Operator != v1.NodeSelectorOpIn || !slices.Contains(nodeSelector.Values, "true") {
+								t.Errorf("unexpected nodeSelector is set in device key field")
+							}
+						case "cohdi.com/fabric":
+							if nodeSelector.Operator != v1.NodeSelectorOpIn || !slices.Contains(nodeSelector.Values, "1") {
+								t.Errorf("unexpected nodeSelector is set in fabric key field")
+							}
+						default:
+							t.Errorf("unexpected nodeSelector key is found: %s", nodeSelector.Key)
+						}
+					}
 				}
 			}
 		})
@@ -1225,8 +1363,8 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 				AvailableDeviceCount: 3,
 				CaseDevice:           tc.caseDevice,
 			}
-			m, _, stop := createTestManager(t, testSpec)
-			defer stop()
+			m, _, stopKubeController := createTestManager(t, testSpec)
+			defer stopKubeController()
 
 			count := 1
 			if tc.maxNumChanged {

@@ -515,6 +515,14 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 									written = writeResponse(w, http.StatusOK, testNodeGroups2)
 								}
 							}
+							if !written {
+								unSuccess := unsuccessfulResponse{
+									Detail: responseDetail{
+										Message: "CM node group list API is failed",
+									},
+								}
+								writeResponse(w, http.StatusNotFound, unSuccess)
+							}
 						} else {
 							ngId := strings.TrimPrefix(remainder, "/"+clusterID1+"/nodegroups")
 							if tenantId == tenantID1 {
@@ -533,17 +541,16 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 									written = writeResponse(w, http.StatusOK, testNodeGroupInfos2[2])
 								}
 							}
+							if !written {
+								unSuccess := unsuccessfulResponse{
+									Detail: responseDetail{
+										Message: "CM node group info API is failed",
+									},
+								}
+								writeResponse(w, http.StatusNotFound, unSuccess)
+							}
 						}
 					}
-					if !written {
-						unSuccess := unsuccessfulResponse{
-							Detail: responseDetail{
-								Message: "CM node group list API is failed",
-							},
-						}
-						writeResponse(w, http.StatusNotFound, unSuccess)
-					}
-
 				}
 				if strings.HasPrefix(remainder, "/v3/tenants/") {
 					remainder = strings.TrimPrefix(remainder, "/v3/tenants/")
@@ -556,16 +563,18 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 						remainder = strings.TrimPrefix(remainder, tenantID2+"/clusters")
 						tenantId = tenantID2
 					}
-					muuid := strings.TrimPrefix(remainder, "/"+clusterID1+"/machines/")
-					r := regexp.MustCompile("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
-					if r.MatchString(muuid) {
-						index, _ := strconv.Atoi(string(muuid[len(muuid)-1]))
-						if tenantId == tenantID1 {
-							written = writeResponse(w, http.StatusOK, testNodeDetails1)
-						}
-						if tenantId == tenantID2 {
-							if index <= len(testNodeDetails2) {
-								written = writeResponse(w, http.StatusOK, testNodeDetails2[index])
+					if len(tenantId) != 0 {
+						muuid := strings.TrimPrefix(remainder, "/"+clusterID1+"/machines/")
+						r := regexp.MustCompile("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
+						if r.MatchString(muuid) {
+							index, _ := strconv.Atoi(string(muuid[len(muuid)-1]))
+							if tenantId == tenantID1 {
+								written = writeResponse(w, http.StatusOK, testNodeDetails1)
+							}
+							if tenantId == tenantID2 {
+								if index <= len(testNodeDetails2) {
+									written = writeResponse(w, http.StatusOK, testNodeDetails2[index])
+								}
 							}
 						}
 					}
@@ -674,7 +683,7 @@ func BuildTestClientSet(t testing.TB, testSpec config.TestSpec) (TestClientSet, 
 		BMHs:   make([]*unstructured.Unstructured, config.TestNodeCount),
 	}
 	for i := 0; i < config.TestNodeCount; i++ {
-		testConfig.Nodes[i], testConfig.BMHs[i] = ku.CreateNodeBMHs(i, "test-namespace", testConfig.Spec.UseCapiBmh)
+		testConfig.Nodes[i], testConfig.BMHs[i] = ku.CreateNodeBMHs(i, "test-namespace", testSpec.UseCapiBmh)
 	}
 
 	kubeclient, dynamicclient := ku.CreateTestClient(t, testConfig)
