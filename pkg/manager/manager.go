@@ -307,6 +307,9 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 		type deviceMinMax map[string]limit
 		nodeGroupFound := make(map[string]deviceMinMax)
 		for _, machine := range machines {
+			if len(machine.nodeGroupUUID) == 0 {
+				continue
+			}
 			if _, exists := nodeGroupFound[machine.nodeGroupUUID]; exists {
 				continue
 			}

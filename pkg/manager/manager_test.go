@@ -952,8 +952,8 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 		modelName      string
 		expectedErr    bool
 		expectedErrMsg string
-		expectedMin    int
-		expectedMax    int
+		expectedMin    *int
+		expectedMax    *int
 	}{
 		{
 			name:        "When correct min/max number of fabric devices is obtained as expected",
@@ -961,8 +961,8 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 			machineUUID: "00000000-0000-0000-0000-000000000000",
 			modelName:   "DEVICE 1",
 			expectedErr: false,
-			expectedMin: 1,
-			expectedMax: 3,
+			expectedMin: ptr.To(1),
+			expectedMax: ptr.To(3),
 		},
 		{
 			name:           "When node details API is failed",
@@ -971,6 +971,15 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 			modelName:      "DEVICE 1",
 			expectedErr:    true,
 			expectedErrMsg: "CM node details API failed",
+		},
+		{
+			name:        "When not-existsted device model is specified",
+			tenantId:    "00000000-0000-0002-0000-000000000000",
+			machineUUID: "00000000-0000-0000-0000-000000000000",
+			modelName:   "DUMMY DEVICE",
+			expectedErr: false,
+			expectedMin: nil,
+			expectedMax: nil,
 		},
 	}
 	for _, tc := range testCases {
@@ -997,13 +1006,21 @@ func TestCDIManagerGetMinMaxNums(t *testing.T) {
 					t.Errorf("unexpected error: %v", err)
 				}
 				if min != nil {
-					if *min != tc.expectedMin {
-						t.Errorf("unexpected min value, expected %d but got %d", tc.expectedMin, *min)
+					if tc.expectedMin != nil {
+						if *min != *tc.expectedMin {
+							t.Errorf("unexpected min value, expected %d but got %d", *tc.expectedMin, *min)
+						}
+					} else {
+						t.Errorf("unexpected min value, expected min is nil but got not nil")
 					}
 				}
 				if max != nil {
-					if *max != tc.expectedMax {
-						t.Errorf("unexpected max value, expected %d but got %d", tc.expectedMax, *max)
+					if tc.expectedMax != nil {
+						if *max != *tc.expectedMax {
+							t.Errorf("unexpected max value, expected %d but got %d", tc.expectedMax, *max)
+						}
+					} else {
+						t.Errorf("unexpected max value, expected max is nil but got not nil")
 					}
 				}
 			}
