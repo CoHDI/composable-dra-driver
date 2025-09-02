@@ -1191,7 +1191,7 @@ func TestCDIManagerUpdatePool(t *testing.T) {
 		},
 		{
 			name:                 "When pool is not updated",
-			availableDeviceCount: []int{1},
+			availableDeviceCount: []int{1, 1, 1},
 			fabricID:             1,
 			expectedUpdated:      false,
 		},
@@ -1235,46 +1235,25 @@ func TestCDIManagerUpdatePool(t *testing.T) {
 func TestCDIManagerGeneratePool(t *testing.T) {
 	testCases := []struct {
 		name                 string
-		useCapiBmh           bool
-		nodeCount            int
 		k8sDeviceName        string
 		draAttributes        map[string]string
 		availableDeviceCount int
-		bindingTimeout       *int64
 		expectedDeviceName   string
-		expectedLabel        string
 	}{
 		{
 			name:          "When correct pool is generated as expected",
-			useCapiBmh:    false,
-			nodeCount:     1,
 			k8sDeviceName: "test-device-1",
 			draAttributes: map[string]string{
 				"productName": "TEST DEVICE 1",
 			},
 			availableDeviceCount: 3,
-			bindingTimeout:       ptr.To(int64(600)),
 			expectedDeviceName:   "test-device-1-gpu0",
-			expectedLabel:        "cohdi.com/test-device-1",
-		},
-		{
-			name:          "When BindingTimeout is nil",
-			useCapiBmh:    false,
-			nodeCount:     1,
-			k8sDeviceName: "test-device-1",
-			draAttributes: map[string]string{
-				"productName": "TEST DEVICE 1",
-			},
-			availableDeviceCount: 3,
-			bindingTimeout:       nil,
-			expectedDeviceName:   "test-device-1-gpu0",
-			expectedLabel:        "cohdi.com/test-device-1",
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
-				UseCapiBmh: tc.useCapiBmh,
+				UseCapiBmh: false,
 				DRAenabled: true,
 			}
 			m, server, stopKubeController := createTestManager(t, testSpec)
@@ -1295,16 +1274,36 @@ func TestCDIManagerGeneratePool(t *testing.T) {
 				if devices[0].Name != tc.expectedDeviceName {
 					t.Errorf("unexpected device name in generated pool, expected %s but got %s", tc.expectedDeviceName, devices[0].Name)
 				}
-				foundLabel := false
-				for _, selctorTerms := range pool.NodeSelector.NodeSelectorTerms {
-					for _, exprs := range selctorTerms.MatchExpressions {
-						if exprs.Key == tc.expectedLabel {
-							foundLabel = true
-						}
+				if len(devices) != tc.availableDeviceCount {
+					t.Errorf("unexpected device num is created, expected %d but got %d", tc.availableDeviceCount, len(devices))
+				}
+				for key, value := range tc.draAttributes {
+					str := devices[0].Attributes[resourceapi.QualifiedName(key)].StringValue
+					if str != nil && *str != value {
+						t.Errorf("unexpected dra attributes for key %s, expected %s but got %s", key, value, *str)
 					}
 				}
-				if !foundLabel {
-					t.Errorf("expected nodeSelector is not set, expected label: %s", tc.expectedLabel)
+				if len(pool.NodeSelector.NodeSelectorTerms) == 0 {
+					t.Errorf("NodeSelectorTerms is not found")
+				}
+				for _, nodeSelectors := range pool.NodeSelector.NodeSelectorTerms {
+					if len(nodeSelectors.MatchExpressions) == 0 {
+						t.Errorf("NodeSelector MatchExpressions is not found")
+					}
+					for _, nodeSelector := range nodeSelectors.MatchExpressions {
+						switch nodeSelector.Key {
+						case "cohdi.com/" + tc.k8sDeviceName:
+							if nodeSelector.Operator != v1.NodeSelectorOpIn || !slices.Contains(nodeSelector.Values, "true") {
+								t.Errorf("unexpected nodeSelector is set in device key field")
+							}
+						case "cohdi.com/fabric":
+							if nodeSelector.Operator != v1.NodeSelectorOpIn || !slices.Contains(nodeSelector.Values, "1") {
+								t.Errorf("unexpected nodeSelector is set in fabric key field")
+							}
+						default:
+							t.Errorf("unexpected nodeSelector key is found: %s", nodeSelector.Key)
+						}
+					}
 				}
 			}
 		})
