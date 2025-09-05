@@ -1558,6 +1558,21 @@ func TestGetFabricID(t *testing.T) {
 			machineUUID:      "00000000-0000-0000-0000-000000000002",
 			expectedFabricID: nil,
 		},
+		{
+			name: "When machine uuid is not listed in FMMachineList",
+			machineList: &client.FMMachineList{
+				Data: client.FMMachines{
+					Machines: []client.FMMachine{
+						{
+							MachineUUID: "00000000-0000-0000-0000-000000000001",
+							FabricID:    ptr.To(1),
+						},
+					},
+				},
+			},
+			machineUUID:      "00000000-0000-0000-0000-000000000002",
+			expectedFabricID: nil,
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
