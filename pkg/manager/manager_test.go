@@ -58,6 +58,7 @@ const (
 const (
 	CaseDeviceCorrect = iota
 	CaseDeviceMinMaxNil
+	CaseDeviceMaxUp
 )
 
 func init() {
@@ -168,49 +169,50 @@ func createTestMachines(ts config.TestSpec) []*machine {
 
 func createTestDeviceList(availableNum int, nodeGroupUUID string, caseDevice int) deviceList {
 	devList := make(deviceList)
+	defaultDevList := deviceList{
+		"DEVICE 1": &device{
+			k8sDeviceName: "test-device-1",
+			driverName:    "test-driver-1",
+			draAttributes: map[string]string{
+				"productName": "TEST DEVICE 1",
+			},
+			availableDeviceCount: availableNum,
+		},
+		"DEVICE 2": &device{
+			k8sDeviceName:        "test-device-2",
+			driverName:           "test-driver-1",
+			availableDeviceCount: availableNum,
+		},
+		"DEVICE 3": &device{
+			k8sDeviceName: "test-device-3",
+			driverName:    "test-driver-2",
+			draAttributes: map[string]string{
+				"productName": "TEST DEVICE 3",
+			},
+			availableDeviceCount: availableNum,
+		},
+	}
+	if nodeGroupUUID == "10000000-0000-0000-0000-000000000000" {
+		for deviceModel := range defaultDevList {
+			defaultDevList[deviceModel].minDeviceCount = ptr.To(1)
+			defaultDevList[deviceModel].maxDeviceCount = ptr.To(3)
+		}
+	}
+	if nodeGroupUUID == "20000000-0000-0000-0000-000000000000" {
+		for deviceModel := range defaultDevList {
+			defaultDevList[deviceModel].minDeviceCount = ptr.To(2)
+			defaultDevList[deviceModel].maxDeviceCount = ptr.To(6)
+		}
+	}
+	if nodeGroupUUID == "30000000-0000-0000-0000-000000000000" {
+		for deviceModel := range defaultDevList {
+			defaultDevList[deviceModel].minDeviceCount = ptr.To(3)
+			defaultDevList[deviceModel].maxDeviceCount = ptr.To(12)
+		}
+	}
 	switch caseDevice {
 	case CaseDeviceCorrect:
-		devList = deviceList{
-			"DEVICE 1": &device{
-				k8sDeviceName: "test-device-1",
-				driverName:    "test-driver-1",
-				draAttributes: map[string]string{
-					"productName": "TEST DEVICE 1",
-				},
-				availableDeviceCount: availableNum,
-			},
-			"DEVICE 2": &device{
-				k8sDeviceName:        "test-device-2",
-				driverName:           "test-driver-1",
-				availableDeviceCount: availableNum,
-			},
-			"DEVICE 3": &device{
-				k8sDeviceName: "test-device-3",
-				driverName:    "test-driver-2",
-				draAttributes: map[string]string{
-					"productName": "TEST DEVICE 3",
-				},
-				availableDeviceCount: availableNum,
-			},
-		}
-		if nodeGroupUUID == "10000000-0000-0000-0000-000000000000" {
-			for deviceName := range devList {
-				devList[deviceName].minDeviceCount = ptr.To(1)
-				devList[deviceName].maxDeviceCount = ptr.To(3)
-			}
-		}
-		if nodeGroupUUID == "20000000-0000-0000-0000-000000000000" {
-			for deviceName := range devList {
-				devList[deviceName].minDeviceCount = ptr.To(2)
-				devList[deviceName].maxDeviceCount = ptr.To(6)
-			}
-		}
-		if nodeGroupUUID == "30000000-0000-0000-0000-000000000000" {
-			for deviceName := range devList {
-				devList[deviceName].minDeviceCount = ptr.To(3)
-				devList[deviceName].maxDeviceCount = ptr.To(12)
-			}
-		}
+		devList = defaultDevList
 	// Add a device to check if it is no problem that min/max device count is nil
 	case CaseDeviceMinMaxNil:
 		devList = deviceList{
@@ -222,6 +224,11 @@ func createTestDeviceList(availableNum int, nodeGroupUUID string, caseDevice int
 				},
 				availableDeviceCount: availableNum,
 			},
+		}
+	case CaseDeviceMaxUp:
+		devList = defaultDevList
+		for deviceModel := range devList {
+			*devList[deviceModel].maxDeviceCount += 2
 		}
 	}
 	return devList
@@ -1311,80 +1318,121 @@ func TestCDIManagerGeneratePool(t *testing.T) {
 }
 
 func TestCDIManagerManageCDINodeLabel(t *testing.T) {
-	testCases := []struct {
-		name              string
-		nodeName          string
-		deviceName        string
+	type loopSpec struct {
 		caseDevice        int
-		maxNumChanged     bool
-		expectedFabric    string
 		expectedMinDevice string
-		expectedMaxDevice []string
-		expectedErr       bool
+		expectedMaxDevice string
+	}
+	testCases := []struct {
+		name           string
+		useCM          bool
+		nodeName       string
+		deviceName     string
+		expectedFabric string
+		loopSpecs      []loopSpec
+		expectedErr    bool
 	}{
 		{
-			name:              "When correctly nodes labeled",
-			nodeName:          "test-node-0",
-			deviceName:        "test-device-1",
-			caseDevice:        CaseDeviceCorrect,
-			expectedFabric:    "1",
-			expectedMinDevice: "1",
-			expectedMaxDevice: []string{"3"},
-			expectedErr:       false,
+			name:       "When nodes are correctly labeled when USE_CM is true",
+			useCM:      true,
+			nodeName:   "test-node-0",
+			deviceName: "test-device-1",
+			loopSpecs: []loopSpec{
+				{
+					caseDevice:        CaseDeviceCorrect,
+					expectedMinDevice: "1",
+					expectedMaxDevice: "3",
+				},
+			},
+			expectedFabric: "1",
+			expectedErr:    false,
 		},
 		{
-			name:              "When device min and max is nil",
-			nodeName:          "test-node-0",
-			deviceName:        "test-device-1",
-			caseDevice:        CaseDeviceMinMaxNil,
-			expectedFabric:    "1",
-			expectedMaxDevice: []string{""},
-			expectedMinDevice: "",
-			expectedErr:       false,
+			name:       "When nodes are correctly labeled when USE_CM is false",
+			useCM:      false,
+			nodeName:   "test-node-0",
+			deviceName: "test-device-1",
+			loopSpecs: []loopSpec{
+				{
+					caseDevice:        CaseDeviceCorrect,
+					expectedMinDevice: "",
+					expectedMaxDevice: "",
+				},
+			},
+			expectedFabric: "1",
+			expectedErr:    false,
 		},
 		{
-			name:              "When max device num is changed",
-			nodeName:          "test-node-0",
-			deviceName:        "test-device-1",
-			caseDevice:        CaseDeviceCorrect,
-			maxNumChanged:     true,
-			expectedFabric:    "1",
-			expectedMaxDevice: []string{"3", "5"},
-			expectedMinDevice: "1",
-			expectedErr:       false,
+			name:       "When device min and max is nil",
+			useCM:      true,
+			nodeName:   "test-node-0",
+			deviceName: "test-device-1",
+			loopSpecs: []loopSpec{
+				{
+					caseDevice:        CaseDeviceMinMaxNil,
+					expectedMinDevice: "",
+					expectedMaxDevice: "",
+				},
+			},
+			expectedFabric: "1",
+			expectedErr:    false,
+		},
+		{
+			name:       "When max device num is changed",
+			useCM:      true,
+			nodeName:   "test-node-0",
+			deviceName: "test-device-1",
+			loopSpecs: []loopSpec{
+				{
+					caseDevice:        CaseDeviceCorrect,
+					expectedMinDevice: "1",
+					expectedMaxDevice: "3",
+				},
+				{
+					caseDevice:        CaseDeviceMaxUp,
+					expectedMinDevice: "1",
+					expectedMaxDevice: "5",
+				},
+			},
+			expectedFabric: "1",
+			expectedErr:    false,
+		},
+		{
+			name:       "When label is removed if min and max becomes nil",
+			useCM:      true,
+			nodeName:   "test-node-0",
+			deviceName: "test-device-1",
+			loopSpecs: []loopSpec{
+				{
+					caseDevice:        CaseDeviceCorrect,
+					expectedMinDevice: "1",
+					expectedMaxDevice: "3",
+				},
+				{
+					caseDevice:        CaseDeviceMinMaxNil,
+					expectedMinDevice: "",
+					expectedMaxDevice: "",
+				},
+			},
+			expectedFabric: "1",
+			expectedErr:    false,
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testSpec := config.TestSpec{
 				UseCapiBmh:           false,
-				UseCM:                true,
+				UseCM:                tc.useCM,
 				DRAenabled:           true,
 				AvailableDeviceCount: 3,
-				CaseDevice:           tc.caseDevice,
 			}
 			m, _, stopKubeController := createTestManager(t, testSpec)
 			defer stopKubeController()
 
-			count := 1
-			if tc.maxNumChanged {
-				count++
-			}
-			for i := 0; i < count; i++ {
+			for _, loopSpec := range tc.loopSpecs {
+				testSpec.CaseDevice = loopSpec.caseDevice
 				machines := createTestMachines(testSpec)
-				if i > 0 && tc.maxNumChanged {
-					for _, machine := range machines {
-						if machine.nodeName == tc.nodeName {
-							for _, device := range machine.deviceList {
-								if device.k8sDeviceName == tc.deviceName {
-									if device.maxDeviceCount != nil {
-										*device.maxDeviceCount += i * 2
-									}
-								}
-							}
-						}
-					}
-				}
+
 				err := m.manageCDINodeLabel(context.Background(), machines)
 
 				if tc.expectedErr {
@@ -1404,12 +1452,32 @@ func TestCDIManagerManageCDINodeLabel(t *testing.T) {
 							t.Errorf("unexpected label of fabric id, expected %s but got %s", tc.expectedFabric, node.Labels["cohdi.com/fabric"])
 						}
 						maxLabel := fmt.Sprintf("cohdi.com/%s-size-max", tc.deviceName)
-						if node.Labels[maxLabel] != tc.expectedMaxDevice[i] {
-							t.Errorf("unexpected label of max device num, expected %s but got %s", tc.expectedMaxDevice, node.Labels[maxLabel])
+						if max, exist := node.Labels[maxLabel]; exist {
+							if len(loopSpec.expectedMaxDevice) > 0 {
+								if max != loopSpec.expectedMaxDevice {
+									t.Errorf("unexpected label of max device num, expected %s but got %s", loopSpec.expectedMaxDevice, max)
+								}
+							} else {
+								t.Errorf("unexpected label of max device num, expected none but got %s", max)
+							}
+						} else {
+							if len(loopSpec.expectedMaxDevice) > 0 {
+								t.Errorf("unexpected label of max device num, expected %s but got none", loopSpec.expectedMaxDevice)
+							}
 						}
 						minLabel := fmt.Sprintf("cohdi.com/%s-size-min", tc.deviceName)
-						if node.Labels[minLabel] != tc.expectedMinDevice {
-							t.Errorf("unexpected label of min device num, expected %s but got %s", tc.expectedMinDevice, node.Labels[minLabel])
+						if min, exist := node.Labels[minLabel]; exist {
+							if len(loopSpec.expectedMinDevice) > 0 {
+								if min != loopSpec.expectedMinDevice {
+									t.Errorf("unexpected label of min device num, expected %s but got %s", loopSpec.expectedMinDevice, min)
+								}
+							} else {
+								t.Errorf("unexpected label of min device num, expected none but got %s", min)
+							}
+						} else {
+							if len(loopSpec.expectedMinDevice) > 0 {
+								t.Errorf("unexpected label of min device num, expected %s but got none", loopSpec.expectedMinDevice)
+							}
 						}
 					}
 				}
