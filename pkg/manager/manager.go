@@ -207,7 +207,7 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 		return err
 	}
 	if len(muuids) == 0 {
-		return fmt.Errorf("not any machine uuid is found")
+		return fmt.Errorf("no machine uuid is found")
 	}
 	// Get list of machine
 	mList, err := m.getMachineList(ctx)
@@ -262,7 +262,7 @@ func (m *CDIManager) startCheckResourcePoolLoop(ctx context.Context, controllers
 	}
 
 	if len(machines) == 0 {
-		return fmt.Errorf("not any machine is found to process")
+		return fmt.Errorf("no machine is found to process")
 	}
 
 	// Get the number of free devices in a fabric pool
@@ -492,18 +492,20 @@ func (m *CDIManager) manageCDIResourceSlices(machines []*machine, controlles map
 	needUpdate := make(map[string]bool)
 	fabricFound := make(map[int]bool)
 	for _, machine := range machines {
-		if !fabricFound[*machine.fabricID] {
-			for _, device := range machine.deviceList {
-				if _, exist := m.namedDriverResources[device.driverName]; exist {
-					poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(*machine.fabricID)
-					updated := m.updatePool(poolName, device, *machine.fabricID)
-					if updated {
-						slog.Info("pool update", "poolName", poolName, "generation", m.namedDriverResources[device.driverName].Pools[poolName].Generation, "driver", device.driverName)
-						needUpdate[device.driverName] = true
+		if machine.fabricID != nil {
+			if !fabricFound[*machine.fabricID] {
+				for _, device := range machine.deviceList {
+					if _, exist := m.namedDriverResources[device.driverName]; exist {
+						poolName := device.k8sDeviceName + "-fabric" + strconv.Itoa(*machine.fabricID)
+						updated := m.updatePool(poolName, device, *machine.fabricID)
+						if updated {
+							slog.Info("pool update", "poolName", poolName, "generation", m.namedDriverResources[device.driverName].Pools[poolName].Generation, "driver", device.driverName)
+							needUpdate[device.driverName] = true
+						}
 					}
 				}
+				fabricFound[*machine.fabricID] = true
 			}
-			fabricFound[*machine.fabricID] = true
 		}
 	}
 	for driverName, driverResources := range m.namedDriverResources {

@@ -35,6 +35,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -54,11 +55,15 @@ import (
 const (
 	tenantID1        = "00000000-0000-0001-0000-000000000000"
 	tenantID2        = "00000000-0000-0002-0000-000000000000"
+	tenantID3        = "00000000-0000-0003-0000-000000000000"
+	tenantID4        = "00000000-0000-0004-0000-000000000000"
 	tenantIDTimeOut  = "00000000-0000-0400-0000-000000000000"
 	tenantIDNotFound = "00000000-0000-0404-0000-000000000000"
 
 	clusterID1 = "00000000-0000-0000-0001-000000000000"
 )
+
+var tenantIDs = []string{tenantID1, tenantID2, tenantID3, tenantID4}
 
 var testAccessToken string = "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":2069550000}`))
 
@@ -138,6 +143,23 @@ var testMachineList2 FMMachineList = FMMachineList{
 			},
 		},
 	},
+}
+
+var testMachineList3 = removeFabricID(testMachineList2, 6, 8)
+
+var testMachineList4 = removeFabricID(testMachineList2, 0, 8)
+
+func removeFabricID(mList FMMachineList, fromMachine int, toMachine int) FMMachineList {
+	newMachines := make([]FMMachine, len(mList.Data.Machines))
+	copy(newMachines, mList.Data.Machines)
+	for i := fromMachine; i <= toMachine; i++ {
+		newMachines[i].FabricID = nil
+	}
+	return FMMachineList{
+		Data: FMMachines{
+			Machines: newMachines,
+		},
+	}
 }
 
 var testAvailableReservedResources = map[string][]FMAvailableReservedResources{
@@ -441,18 +463,32 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 				if remainder == "" {
 					for key, value := range r.URL.Query() {
 						if key == "tenant_uuid" && value[0] == tenantID1 {
-							_ = writeResponse(w, http.StatusOK, testMachineList1)
+							written = writeResponse(w, http.StatusOK, testMachineList1)
 						}
 						if key == "tenant_uuid" && value[0] == tenantID2 {
-							_ = writeResponse(w, http.StatusOK, testMachineList2)
+							written = writeResponse(w, http.StatusOK, testMachineList2)
+						}
+						if key == "tenant_uuid" && value[0] == tenantID3 {
+							written = writeResponse(w, http.StatusOK, testMachineList3)
+						}
+						if key == "tenant_uuid" && value[0] == tenantID4 {
+							written = writeResponse(w, http.StatusOK, testMachineList4)
 						}
 						if key == "tenant_uuid" && value[0] == tenantIDTimeOut {
 							time.Sleep(65 * time.Second)
-							_ = writeResponse(w, http.StatusOK, testMachineList1)
+							written = writeResponse(w, http.StatusOK, testMachineList1)
 						}
 						if key == "tenant_uuid" && value[0] == tenantIDNotFound {
 							w.WriteHeader(http.StatusNotFound)
 						}
+					}
+					if !written {
+						unSuccess := unsuccessfulResponse{
+							Detail: responseDetail{
+								Message: "FM machine list API is failed",
+							},
+						}
+						writeResponse(w, http.StatusNotFound, unSuccess)
 					}
 				}
 				if strings.HasSuffix(r.URL.Path, "/available-reserved-resources") {
@@ -462,7 +498,7 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 						index, _ := strconv.Atoi(string(muuid[len(muuid)-1]))
 						var condition Condition
 						query := r.URL.Query()
-						if value, exist := query["tenant_uuid"]; exist && (value[0] == tenantID1 || value[0] == tenantID2) {
+						if value, exist := query["tenant_uuid"]; exist && slices.Contains(tenantIDs, value[0]) {
 							if value, exist := query["res_type"]; exist && value[0] == "gpu" {
 								if value, exist := query["condition"]; exist {
 									_ = json.Unmarshal([]byte(value[0]), &condition)
@@ -494,13 +530,11 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 				if strings.HasPrefix(remainder, "/v2/tenants/") {
 					remainder = strings.TrimPrefix(remainder, "/v2/tenants/")
 					var tenantId string
-					if strings.HasPrefix(remainder, tenantID1) {
-						remainder = strings.TrimPrefix(remainder, tenantID1+"/clusters")
-						tenantId = tenantID1
-					}
-					if strings.HasPrefix(remainder, tenantID2) {
-						remainder = strings.TrimPrefix(remainder, tenantID2+"/clusters")
-						tenantId = tenantID2
+					for _, tenantID := range tenantIDs {
+						if strings.HasPrefix(remainder, tenantID) {
+							remainder = strings.TrimPrefix(remainder, tenantID+"/clusters")
+							tenantId = tenantID
+						}
 					}
 					if len(tenantId) != 0 {
 						if strings.HasSuffix(remainder, "/nodegroups") {
@@ -510,7 +544,8 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 									written = writeResponse(w, http.StatusOK, testNodeGroups1)
 								}
 							}
-							if tenantId == tenantID2 {
+							otherTenants := tenantIDs[1:]
+							if slices.Contains(otherTenants, tenantId) {
 								if clusterId == "/"+clusterID1 {
 									written = writeResponse(w, http.StatusOK, testNodeGroups2)
 								}
@@ -530,7 +565,8 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 									written = writeResponse(w, http.StatusOK, testNodeGroupInfos1[0])
 								}
 							}
-							if tenantId == tenantID2 {
+							otherTenants := tenantIDs[1:]
+							if slices.Contains(otherTenants, tenantId) {
 								if ngId == "/10000000-0000-0000-0000-000000000000" {
 									written = writeResponse(w, http.StatusOK, testNodeGroupInfos2[0])
 								}
@@ -555,13 +591,11 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 				if strings.HasPrefix(remainder, "/v3/tenants/") {
 					remainder = strings.TrimPrefix(remainder, "/v3/tenants/")
 					var tenantId string
-					if strings.HasPrefix(remainder, tenantID1) {
-						remainder = strings.TrimPrefix(remainder, tenantID1+"/clusters")
-						tenantId = tenantID1
-					}
-					if strings.HasPrefix(remainder, tenantID2) {
-						remainder = strings.TrimPrefix(remainder, tenantID2+"/clusters")
-						tenantId = tenantID2
+					for _, tenantID := range tenantIDs {
+						if strings.HasPrefix(remainder, tenantID) {
+							remainder = strings.TrimPrefix(remainder, tenantID+"/clusters")
+							tenantId = tenantID
+						}
 					}
 					if len(tenantId) != 0 {
 						muuid := strings.TrimPrefix(remainder, "/"+clusterID1+"/machines/")
@@ -571,7 +605,7 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 							if tenantId == tenantID1 {
 								written = writeResponse(w, http.StatusOK, testNodeDetails1)
 							}
-							if tenantId == tenantID2 {
+							if tenantId == tenantID2 || tenantId == tenantID3 {
 								if index <= len(testNodeDetails2) {
 									written = writeResponse(w, http.StatusOK, testNodeDetails2[index])
 								}
@@ -581,7 +615,7 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 					if !written {
 						unSuccess := unsuccessfulResponse{
 							Detail: responseDetail{
-								Message: "CM node group list API is failed",
+								Message: "CM node details API is failed",
 							},
 						}
 						writeResponse(w, http.StatusNotFound, unSuccess)

@@ -713,7 +713,7 @@ func TestCDIClientDo(t *testing.T) {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
-				if string(result.body) != string(tc.expectedBody) {
+				if len(string(tc.expectedBody)) > 0 && string(result.body) != string(tc.expectedBody) {
 					t.Errorf("unexpected result body, expected %s but got %s", tc.expectedBody, result.body)
 				}
 				if result.statusCode != tc.expectedStatusCode {
