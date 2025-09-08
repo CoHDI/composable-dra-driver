@@ -421,6 +421,8 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 		caseDevInfo              int
 		caseDriverResource       int
 		deletedAnnotationBmh     []string
+		tenantId                 string
+		clusterId                string
 		expectedErr              bool
 		expectedErrMsg           string
 		expectedPoolName         string
@@ -441,6 +443,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 			useCM:                    false,
 			caseDriverResource:       CaseDriverResourceEmpty,
 			nodeName:                 "test-node-0",
+			expectedErr:              false,
 			expectedResourceSliceNum: 9,
 			expectedPoolName:         "test-device-1-fabric1",
 			expectedAvailableDevices: 2,
@@ -460,6 +463,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 			useCM:              true,
 			caseDriverResource: CaseDriverResourceEmpty,
 			nodeName:           "test-node-0",
+			expectedErr:        false,
 			expectedDeviceName: "test-device-1",
 			expectedFabric:     "1",
 			expectedMaxDevice:  "3",
@@ -472,6 +476,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 			caseDriverResource:       CaseDriverResourceEmpty,
 			deletedAnnotationBmh:     []string{"test-bmh-0", "test-bmh-3", "test-bmh-6"},
 			nodeName:                 "test-node-0",
+			expectedErr:              false,
 			expectedDeviceName:       "test-device-2",
 			expectedFabric:           "",
 			expectedMaxDevice:        "",
@@ -492,12 +497,12 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 			caseDriverResource:   CaseDriverResourceEmpty,
 			deletedAnnotationBmh: []string{"ALL"},
 			expectedErr:          true,
-			expectedErrMsg:       "not any machine uuid is found",
+			expectedErrMsg:       "no machine uuid is found",
 		},
 		{
 			name:               "When cdi-model-name includes symbol",
-			useCapiBmh:         false,
-			useCM:              false,
+			useCapiBmh:         true,
+			useCM:              true,
 			caseDevInfo:        config.CaseDevInfoModelSymbol,
 			caseDriverResource: CaseDriverResourceEmpty,
 			expectedErr:        true,
@@ -510,6 +515,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 			nodeName:                 "test-node-8",
 			caseDevInfo:              config.CaseDevInfoFullLength,
 			caseDriverResource:       CaseDriverResourceFullLength,
+			expectedErr:              false,
 			expectedResourceSliceNum: 3,
 			expectedPoolName:         "test-device-1-fabric1",
 			expectedAvailableDevices: 128,
@@ -524,6 +530,57 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 			expectedMaxDevice:        "12",
 			expectedMinDevice:        "3",
 		},
+		{
+			name:               "When non-existednt tenant id is specified",
+			useCapiBmh:         true,
+			useCM:              true,
+			nodeName:           "test-node-1",
+			caseDriverResource: CaseDriverResourceEmpty,
+			tenantId:           "00000000-0000-0404-0000-000000000000",
+			expectedErr:        true,
+			expectedErrMsg:     "FM machine list API failed",
+		},
+		{
+			name:               "When non-existent cluster id is specified",
+			useCapiBmh:         true,
+			useCM:              true,
+			nodeName:           "test-node-1",
+			caseDriverResource: CaseDriverResourceEmpty,
+			clusterId:          "00000000-0000-0000-0404-000000000000",
+			expectedErr:        true,
+			expectedErrMsg:     "CM node groups API failed",
+		},
+		{
+			name:                     "When some machines don't have fabric id",
+			useCapiBmh:               true,
+			useCM:                    true,
+			nodeName:                 "test-node-4",
+			caseDriverResource:       CaseDriverResourceEmpty,
+			tenantId:                 "00000000-0000-0003-0000-000000000000",
+			expectedErr:              false,
+			expectedResourceSliceNum: 9,
+			expectedPoolName:         "test-device-3-fabric2",
+			expectedAvailableDevices: 5,
+			expectedFabric:           "2",
+			expectedDeviceName:       "test-device-3",
+			expectedDriverName:       "test-driver-2",
+			expectedAttributes: map[string]string{
+				"productName": "TEST DEVICE 3",
+			},
+			expectedBCFailure: []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
+			expectedMaxDevice: "6",
+			expectedMinDevice: "2",
+		},
+		{
+			name:               "When all machines don't have fabric id",
+			useCapiBmh:         true,
+			useCM:              true,
+			nodeName:           "test-node-1",
+			caseDriverResource: CaseDriverResourceEmpty,
+			tenantId:           "00000000-0000-0004-0000-000000000000",
+			expectedErr:        true,
+			expectedErrMsg:     "no machine is found to process",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -533,6 +590,8 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 				DRAenabled:         true,
 				CaseDeviceInfo:     tc.caseDevInfo,
 				CaseDriverResource: tc.caseDriverResource,
+				TenantID:           tc.tenantId,
+				ClusterID:          tc.clusterId,
 			}
 			m, server, stopKubeController := createTestManager(t, testSpec)
 			defer server.Close()
@@ -560,7 +619,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 				if err == nil {
 					t.Error("expected error, but got none")
 				}
-				if len(tc.expectedErrMsg) > 0 && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+				if err != nil && len(tc.expectedErrMsg) > 0 && !strings.Contains(err.Error(), tc.expectedErrMsg) {
 					t.Errorf("unexpected error message, expected %s but got %s", tc.expectedErrMsg, err.Error())
 				}
 			} else if !tc.expectedErr {
