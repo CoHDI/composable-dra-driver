@@ -84,13 +84,15 @@ func newApp() *cli.App {
 		&cli.StringFlag{
 			Name:        "cluster-id",
 			Usage:       "ID of cluster where CDI_DRA is executed. Must specify a form of UUID",
-			Required:    true,
+			Required:    false,
 			Destination: &config.ClusterID,
 			EnvVars:     []string{"CLUSTER_ID"},
 			Action: func(ctx *cli.Context, clusterId string) error {
-				r := regexp.MustCompile(uuidFormat)
-				if !r.MatchString(clusterId) {
-					return fmt.Errorf("cluster id must be set as uuid format")
+				if ctx.Bool("use-cm") {
+					r := regexp.MustCompile(uuidFormat)
+					if !r.MatchString(clusterId) {
+						return fmt.Errorf("cluster id must be set as uuid format")
+					}
 				}
 				return nil
 			},
@@ -137,6 +139,12 @@ func newApp() *cli.App {
 		Before: func(c *cli.Context) error {
 			if c.Args().Len() > 0 {
 				return fmt.Errorf("arguments not supported: %v", c.Args().Slice())
+			}
+			if c.Bool("use-cm") {
+				clusterId := c.String("cluster-id")
+				if len(clusterId) == 0 {
+					return fmt.Errorf("cluster id must be set when USE_CM is true")
+				}
 			}
 			return nil
 		},
