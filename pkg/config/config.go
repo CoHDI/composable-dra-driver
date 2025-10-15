@@ -59,7 +59,7 @@ type DeviceInfo struct {
 	// DRA pool name or label name affixed to a node. Basic format is "<vendor>-<model>"
 	K8sDeviceName string `yaml:"k8s-device-name" validate:"required,max=50,is-dns"`
 	// List of device indexes unable to coexist in the same node
-	CanNotCoexistWith []int `yaml:"cannot-coexists-with" validate:"required,max=100"`
+	CanNotCoexistWith []int `yaml:"cannot-coexist-with" validate:"required,max=100"`
 }
 
 func GetDeviceInfos(cm *corev1.ConfigMap) ([]DeviceInfo, error) {
