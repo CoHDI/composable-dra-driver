@@ -1,6 +1,6 @@
 # Contributing to CoHDI
 
-Welcome! We are glad that you want to contribute to our Cozystack project! 💖
+Welcome! We are glad that you want to contribute to our composable-dra-driver project! 💖
 
 As you get started, you are in the best position to give us feedbacks on areas of our project that we need help with, including:
 
