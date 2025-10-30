@@ -55,7 +55,7 @@ type DeviceInfo struct {
 	// Attributes of ResourceSlice that will be exposed. It corresponds to vendor's ResourceSlice
 	DRAAttributes map[string]string `yaml:"dra-attributes" validate:"max=32,has-productName,dive,keys,is-qualifiedName,endkeys,max=64"`
 	// Name of vendor DRA driver for a device
-	DriverName string `yaml:"driver-name" validate:"required,max=63,is-dns"`
+	DriverName string `yaml:"driver-name" validate:"required,max=63,is-dnsSubdomain"`
 	// DRA pool name or label name affixed to a node. Basic format is "<vendor>-<model>"
 	K8sDeviceName string `yaml:"k8s-device-name" validate:"required,max=50,is-dns"`
 	// List of device indexes unable to coexist in the same node
@@ -81,6 +81,7 @@ func GetDeviceInfos(cm *corev1.ConfigMap) ([]DeviceInfo, error) {
 		// Validate the factor in device-info
 		validate := validator.New()
 		validate.RegisterValidation("is-dns", ValidateDNSLabel)
+		validate.RegisterValidation("is-dnsSubdomain", ValidateDNSSubdomain)
 		validate.RegisterValidation("is-qualifiedName", IsQualifiedName)
 		validate.RegisterValidation("has-productName", HasProductName)
 		if err := validate.Struct(devInfoList); err != nil {
@@ -94,8 +95,29 @@ func ValidateDNSLabel(fl validator.FieldLevel) bool {
 	value := fl.Field().String()
 	errs := validation.IsDNS1123Label(value)
 	if len(errs) > 0 {
+		seen := make(map[string]bool)
 		for _, err := range errs {
-			slog.Error("validation error. It must be DNS label", "value", value, "error", err)
+			if !seen[err] {
+				slog.Error("validation error. It must be DNS label", "value", value, "error", err)
+				seen[err] = true
+			}
+		}
+		return false
+	} else {
+		return true
+	}
+}
+
+func ValidateDNSSubdomain(fl validator.FieldLevel) bool {
+	value := fl.Field().String()
+	errs := validation.IsDNS1123Subdomain(value)
+	if len(errs) > 0 {
+		seen := make(map[string]bool)
+		for _, err := range errs {
+			if !seen[err] {
+				slog.Error("validation error. It must be DNS subdomain", "value", value, "error", err)
+				seen[err] = true
+			}
 		}
 		return false
 	} else {
@@ -107,8 +129,12 @@ func IsQualifiedName(fl validator.FieldLevel) bool {
 	value := fl.Field().String()
 	errs := validation.IsQualifiedName(value)
 	if len(errs) > 0 {
+		seen := make(map[string]bool)
 		for _, err := range errs {
-			slog.Error("validation error. It must be QualifiedName", "value", value, "error", err)
+			if !seen[err] {
+				slog.Error("validation error. It must be QualifiedName", "value", value, "error", err)
+				seen[err] = true
+			}
 		}
 		return false
 	} else {
