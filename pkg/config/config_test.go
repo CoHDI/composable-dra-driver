@@ -231,6 +231,24 @@ func TestGetDeviceInfos(t *testing.T) {
 			expectedErr:    true,
 			expectedErrMsg: "Error:Field validation for 'DeviceInfos' failed on the 'unique' tag",
 		},
+		{
+			name:           "When driver include dot",
+			cm:             cms[CaseDevInfoDriverDot],
+			expectedErr:    false,
+			expectedLength: 1,
+		},
+		{
+			name:           "When k8s-device-name include dot",
+			cm:             cms[CaseDevInfoDeviceDot],
+			expectedErr:    true,
+			expectedErrMsg: "Error:Field validation for 'K8sDeviceName' failed on the 'is-dns' tag",
+		},
+		{
+			name:           "When driver include upper case",
+			cm:             cms[CaseDevInfoDriverUpperCase],
+			expectedErr:    true,
+			expectedErrMsg: "Error:Field validation for 'DriverName' failed on the 'is-dnsSubdomain' tag",
+		},
 	}
 
 	for _, tc := range testCases {

@@ -71,6 +71,9 @@ const (
 	CaseDevInfoDuplicateDevice
 	CaseDevInfoModelSymbol
 	CaseDevInfoFullLength
+	CaseDevInfoDriverDot
+	CaseDevInfoDeviceDot
+	CaseDevInfoDriverUpperCase
 
 	CaseLabelPrefix100B
 	CaseLabelPrefix101B
@@ -318,6 +321,21 @@ func CreateDeviceInfos(devInfoCase int) []DeviceInfo {
 		for i := 0; i < 30; i++ {
 			devInfo.DRAAttributes[strconv.Itoa(i)] = "attribute-" + strconv.Itoa(i)
 		}
+		devInfos = []DeviceInfo{devInfo}
+
+	case CaseDevInfoDriverDot:
+		devInfo := devInfos[0]
+		devInfo.DriverName = "gpu.example.com"
+		devInfos = []DeviceInfo{devInfo}
+
+	case CaseDevInfoDeviceDot:
+		devInfo := devInfos[0]
+		devInfo.K8sDeviceName = "gpu.example.com"
+		devInfos = []DeviceInfo{devInfo}
+
+	case CaseDevInfoDriverUpperCase:
+		devInfo := devInfos[0]
+		devInfo.DriverName = "GPU.EXAMPLE.COM"
 		devInfos = []DeviceInfo{devInfo}
 
 	default:
