@@ -650,7 +650,7 @@ func TestCheckResourcePoolLoop(t *testing.T) {
 						}
 						var deviceFound bool
 						for _, device := range resourceslice.Spec.Devices {
-							if len(tc.expectedDeviceName) > 0 && device.Name == tc.expectedDeviceName+"-gpu0" {
+							if len(tc.expectedDeviceName) > 0 && device.Name == tc.expectedDeviceName+"-0" {
 								deviceFound = true
 								for expectedKey, expectedValue := range tc.expectedAttributes {
 									value := device.Attributes[resourceapi.QualifiedName(expectedKey)]
@@ -1176,7 +1176,7 @@ func TestCDIManagerManageCDIResourceSlices(t *testing.T) {
 							t.Errorf("unexpected device num, expected %d but got %d", availableDevice, len(resourceslice.Spec.Devices))
 						}
 						for _, device := range resourceslice.Spec.Devices {
-							if device.Name == tc.expectedDeviceName+"-gpu0" {
+							if device.Name == tc.expectedDeviceName+"-0" {
 								deviceFound = true
 								productName := device.Attributes["productName"]
 								if productName.StringValue != nil && *productName.StringValue != tc.expectedProductName {
@@ -1313,7 +1313,7 @@ func TestCDIManagerGeneratePool(t *testing.T) {
 				"productName": "TEST DEVICE 1",
 			},
 			availableDeviceCount: 3,
-			expectedDeviceName:   "test-device-1-gpu0",
+			expectedDeviceName:   "test-device-1-0",
 		},
 	}
 	for _, tc := range testCases {

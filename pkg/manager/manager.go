@@ -39,7 +39,6 @@ import (
 
 const (
 	configMapName = "composable-dra/composable-dra-dds"
-	GpuDeviceType = "gpu"
 )
 
 type CDIManager struct {
@@ -537,12 +536,8 @@ func (m *CDIManager) generatePool(device *device, fabricID int, generation int64
 	var devices []resourceapi.Device
 	for i := 0; i < device.availableDeviceCount; i++ {
 		d := resourceapi.Device{
-			Name: fmt.Sprintf("%s-gpu%d", device.k8sDeviceName, i),
-			Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
-				"type": {
-					StringValue: ptr.To(GpuDeviceType),
-				},
-			},
+			Name:                     fmt.Sprintf("%s-%d", device.k8sDeviceName, i),
+			Attributes:               make(map[resourceapi.QualifiedName]resourceapi.DeviceAttribute),
 			BindsToNode:              ptr.To(true),
 			BindingConditions:        []string{"FabricDeviceReady"},
 			BindingFailureConditions: []string{"FabricDeviceReschedule", "FabricDeviceFailed"},
