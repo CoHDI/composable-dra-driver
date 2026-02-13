@@ -12,4 +12,8 @@ In comparison to the Dynamic Device Scaler, the Composable DRA Driver's role is 
 
 The following diagram shows how this component is positioned in the overall architecture.
 
-![alt text](doc/cdidra1.png)
+![alt text](doc/cdidra1.png)[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FCoHDI%2Fcomposable-dra-driver.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FCoHDI%2Fcomposable-dra-driver?ref=badge_shield)
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FCoHDI%2Fcomposable-dra-driver.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FCoHDI%2Fcomposable-dra-driver?ref=badge_large)
