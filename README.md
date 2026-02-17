@@ -1,4 +1,5 @@
 # Dynamic Resource Allocation (DRA) for Composable disaggregated infrastructure in Kubernetes
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FCoHDI%2Fcomposable-dra-driver.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FCoHDI%2Fcomposable-dra-driver?ref=badge_shield)
 
 Composable DRA Driver is a component that works in conjunction with Dynamic Device Scaler to enable dynamic device scaling without OS reboots, based on requests from Pods.  It acts as a bridge between Kubernetes and the Composable Disaggregated Infrastructure manager, exposing available resources managed by the Composable Disaggregated Infrastructure as ResourceSlices within the Kubernetes DRA (Dynamic Resource Allocation) framework.
 
@@ -12,7 +13,7 @@ In comparison to the Dynamic Device Scaler, the Composable DRA Driver's role is 
 
 The following diagram shows how this component is positioned in the overall architecture.
 
-![alt text](doc/cdidra1.png)[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FCoHDI%2Fcomposable-dra-driver.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FCoHDI%2Fcomposable-dra-driver?ref=badge_shield)
+![alt text](doc/cdidra1.png)
 
 
 ## License
