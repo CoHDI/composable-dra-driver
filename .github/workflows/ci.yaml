@@ -4,6 +4,9 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+
 jobs:
   unit-test:
     name: Run Go Unit Tests
@@ -17,8 +20,8 @@ jobs:
         with:
           go-version: '1.24.1'
 
-      - name: Install dependencies
-        run: go mod tidy
+      - name: Download dependencies
+        run: go mod download
 
       - name: Run tests
         run: go test ./... -v
