@@ -174,7 +174,13 @@ func newApp() *cli.App {
 
 			select {
 			case s := <-sigs:
-				slog.Info("Signal received", "signal", s.String())
+				slog.Info("Signal received, shutting down", "signal", s.String())
+				// Cancel ctx and wait for StartCDIManager so its deferred cleanup
+				// (stopping controllers, deleting slices) completes before exit.
+				cancel()
+				if err := <-errChan; err != nil {
+					slog.Error("Manager exited with error during shutdown", "error", err)
+				}
 				return nil
 			case err := <-errChan:
 				slog.Error("Failed start manager", "error", err)

@@ -24,10 +24,12 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
@@ -163,6 +165,8 @@ func StartCDIManager(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
+	// Delete published ResourceSlices on shutdown.
+	defer m.cleanupResourceSlices(controllers)
 
 	wait.Until(func() {
 		slog.Info("Loop Start")
@@ -174,6 +178,50 @@ func StartCDIManager(ctx context.Context, cfg *config.Config) error {
 		}
 	}, cfg.ScanInterval, ctx.Done())
 	return nil
+}
+
+// cleanupResourceSlices stops the ResourceSlice controllers and deletes the
+// slices they published.
+func (m *CDIManager) cleanupResourceSlices(controllers map[string]*resourceslice.Controller) {
+	for driverName, c := range controllers {
+		slog.Info("Stopping ResourceSlice controller", "driverName", driverName)
+		c.Stop()
+	}
+
+	// Parent ctx is already canceled by the time this runs, so use a fresh one.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	for driverName := range controllers {
+		// List the cluster-wide slices for this driver, then delete only those
+		// whose pool name matches one we published. This guards against deleting
+		// slices from another driver that happens to share the same driver name.
+		list, err := m.coreClient.ResourceV1().ResourceSlices().List(
+			ctx,
+			metav1.ListOptions{
+				FieldSelector: fields.Set{
+					resourceapi.ResourceSliceSelectorDriver:   driverName,
+					resourceapi.ResourceSliceSelectorNodeName: "",
+				}.AsSelector().String(),
+			},
+		)
+		if err != nil {
+			slog.Error("Failed to list ResourceSlices", "driverName", driverName, "error", err)
+			continue
+		}
+
+		publishedPools := m.namedDriverResources[driverName].Pools
+		for i := range list.Items {
+			s := &list.Items[i]
+			if _, ours := publishedPools[s.Spec.Pool.Name]; !ours {
+				continue
+			}
+			slog.Info("Deleting ResourceSlice", "name", s.Name, "driverName", driverName, "pool", s.Spec.Pool.Name)
+			if err := m.coreClient.ResourceV1().ResourceSlices().Delete(ctx, s.Name, metav1.DeleteOptions{}); err != nil {
+				slog.Error("Failed to delete ResourceSlice", "name", s.Name, "error", err)
+			}
+		}
+	}
 }
 
 func (m *CDIManager) startResourceSliceController(ctx context.Context) (map[string]*resourceslice.Controller, error) {
