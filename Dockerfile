@@ -1,4 +1,4 @@
-FROM docker.io/golang:1.26.4 AS builder
+FROM docker.io/golang:1.27.0 AS builder
 WORKDIR /workspace
 
 COPY go.mod go.mod
@@ -9,7 +9,7 @@ COPY main.go main.go
 COPY pkg pkg
 RUN go build
 
-FROM docker.io/golang:1.26.4
+FROM docker.io/golang:1.27.0
 WORKDIR /
 COPY --from=builder /workspace/cdi_dra .
 
