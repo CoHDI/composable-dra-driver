@@ -132,6 +132,73 @@ func TestIsDRAEnabled(t *testing.T) {
 
 }
 
+func TestCreateKubeControllers(t *testing.T) {
+	testCases := []struct {
+		name                 string
+		useCapiBmh           bool
+		bmhResourceExists    bool
+		expectedBmhAvailable bool
+	}{
+		{
+			name:                 "When useCapiBmh is true and BareMetalHost resource exists",
+			useCapiBmh:           true,
+			bmhResourceExists:    true,
+			expectedBmhAvailable: true,
+		},
+		{
+			name:                 "When useCapiBmh is true but BareMetalHost resource does not exist",
+			useCapiBmh:           true,
+			bmhResourceExists:    false,
+			expectedBmhAvailable: false,
+		},
+		{
+			name:                 "When useCapiBmh is false",
+			useCapiBmh:           false,
+			bmhResourceExists:    true,
+			expectedBmhAvailable: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			testConfig := &config.TestConfig{
+				Spec: config.TestSpec{
+					UseCapiBmh: tc.useCapiBmh,
+					DRAenabled: true,
+				},
+				Nodes: make([]*corev1.Node, 1),
+				BMHs:  make([]*unstructured.Unstructured, 1),
+			}
+			testConfig.Nodes[0], testConfig.BMHs[0] = CreateNodeBMHs(0, "test-namespace", tc.useCapiBmh)
+			kubeclient, dynamicclient := CreateTestClient(t, testConfig)
+			if !tc.bmhResourceExists {
+				for _, resourceList := range kubeclient.Fake.Resources {
+					if resourceList.GroupVersion == Metal3APIGroup+"/"+Metal3APIVersion {
+						resourceList.APIResources = nil
+					}
+				}
+			}
+			controllers, stopController := CreateTestKubeControllers(t, testConfig, kubeclient, dynamicclient)
+			defer stopController()
+
+			if controllers.bmhAvailable != tc.expectedBmhAvailable {
+				t.Errorf("unexpected bmhAvailable, expected %t but got %t", tc.expectedBmhAvailable, controllers.bmhAvailable)
+			}
+			muuid, err := controllers.FindMachineUUIDByProviderID(normalizedProviderString(testConfig.Nodes[0].Spec.ProviderID))
+			if tc.expectedBmhAvailable {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if muuid != "00000000-0000-0000-0000-000000000000" {
+					t.Errorf("unexpected machine uuid, expected the uuid from BareMetalHost annotation but got: %s", muuid)
+				}
+			} else if err == nil {
+				t.Error("expected error, but got none")
+			}
+		})
+	}
+}
+
 func TestKubeControllersGetNode(t *testing.T) {
 	testCases := []struct {
 		name             string
