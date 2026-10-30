@@ -34,6 +34,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -64,6 +65,9 @@ const (
 )
 
 var tenantIDs = []string{tenantID1, tenantID2, tenantID3, tenantID4}
+
+// specialCharPassword contains characters that are reserved in form-urlencoded bodies
+const specialCharPassword = "p@ss&w0rd+=%#"
 
 var testAccessToken string = "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":2069550000}`))
 
@@ -411,9 +415,25 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 	var written bool
 	if r.Method == "POST" {
 		body, _ := io.ReadAll(r.Body)
-		targetString := "client_id=0001&client_secret=secret&username=user&password=pass&scope=openid&response=id_token token&grant_type=password"
-		if string(body) == targetString {
+		expectedPassword := "pass"
+		if r.URL.Path == "/id_manager/realms/SpecialChar_Test/protocol/openid-connect/token" {
+			expectedPassword = specialCharPassword
+		}
+		expectedForm := url.Values{
+			"client_id":     {"0001"},
+			"client_secret": {"secret"},
+			"username":      {"user"},
+			"password":      {expectedPassword},
+			"scope":         {"openid"},
+			"response":      {"id_token token"},
+			"grant_type":    {"password"},
+		}
+		form, err := url.ParseQuery(string(body))
+		if err == nil && reflect.DeepEqual(form, expectedForm) {
 			if r.URL.Path == "/id_manager/realms/CDI_DRA_Test/protocol/openid-connect/token" {
+				written = writeResponse(w, http.StatusOK, testIMToken)
+			}
+			if r.URL.Path == "/id_manager/realms/SpecialChar_Test/protocol/openid-connect/token" {
 				written = writeResponse(w, http.StatusOK, testIMToken)
 			}
 			if r.URL.Path == "/id_manager/realms/Nil_Test/protocol/openid-connect/token" {
