@@ -27,6 +27,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -92,10 +93,18 @@ func (c *CDIClient) GetIMToken(ctx context.Context, secret idManagerSecret) (*IM
 	r := newRequest(http.MethodPost)
 	path := fmt.Sprintf("id_manager/realms/%s/protocol/openid-connect/token", secret.realm)
 
-	bodyStr := "client_id=%s&client_secret=%s&username=%s&password=%s&scope=openid&response=id_token token&grant_type=password"
-	data := fmt.Sprintf(bodyStr, secret.client_id, secret.client_secret, secret.username, secret.password)
+	// Encode the form so that credentials containing reserved characters like "&", "+" or "%" are sent intact
+	data := url.Values{
+		"client_id":     {secret.client_id},
+		"client_secret": {secret.client_secret},
+		"username":      {secret.username},
+		"password":      {secret.password},
+		"scope":         {"openid"},
+		"response":      {"id_token token"},
+		"grant_type":    {"password"},
+	}
 
-	req := r.setHost(c.Host).setPath(path).setBody(data).setHeader("Content-Type", "application/x-www-form-urlencoded")
+	req := r.setHost(c.Host).setPath(path).setBody(data.Encode()).setHeader("Content-Type", "application/x-www-form-urlencoded")
 
 	slog.Debug("connecting", "url", req.url().String())
 	httpReq, err := newHTTPRequest(req)
