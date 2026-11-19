@@ -65,6 +65,16 @@ func TestCDIClientGetIMToken(t *testing.T) {
 			expectedErr: false,
 		},
 		{
+			name:     "When IM token is obtained as expected with password containing reserved characters",
+			password: specialCharPassword,
+			realm:    "SpecialChar_Test",
+			expectedToken: &IMToken{
+				AccessToken: "token1" + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"exp":2069550000}`)),
+				ExpiresIn:   1,
+			},
+			expectedErr: false,
+		},
+		{
 			name:           "When provided password is invalid",
 			password:       "invalid-pass",
 			realm:          "CDI_DRA_Test",
