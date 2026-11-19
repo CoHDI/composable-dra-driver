@@ -101,7 +101,8 @@ func CreateKubeControllers(coreClient kube_client.Interface, bmhClient dynamic.I
 	var bmhAvailable bool
 
 	if useCapiBmh {
-		bmhAvailable, err := groupVersionHasResource(discoveryClient,
+		var err error
+		bmhAvailable, err = groupVersionHasResource(discoveryClient,
 			fmt.Sprintf("%s/%s", Metal3APIGroup, Metal3APIVersion), BareMetalHostResourceName)
 		if err != nil {
 			return nil, err
@@ -299,6 +300,9 @@ func (kc *KubeControllers) FindNodeNameByProviderID(providerID normalizedProvide
 func (kc *KubeControllers) FindMachineUUIDByProviderID(providerID normalizedProviderID) (string, error) {
 	var machineUUID string
 
+	if !kc.bmhAvailable {
+		return "", fmt.Errorf("BareMetalHost resource is not available")
+	}
 	objs, err := kc.bmhInformer.Informer().GetIndexer().ByIndex(bmhProviderIDIndex, string(providerID))
 	if err != nil {
 		return "", err
